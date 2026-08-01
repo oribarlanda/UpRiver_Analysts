@@ -32,6 +32,12 @@ interface MissingShift {
   shiftType: ShiftType;
 }
 
+const ASSIGNMENT_STYLES: Record<Employee, string> = {
+  hila: "border-blue-200 bg-blue-100 text-blue-900",
+  yaara: "border-pink-200 bg-pink-100 text-pink-900",
+  omer: "border-emerald-200 bg-emerald-100 text-emerald-900",
+};
+
 function formatDayAndMonth(isoDate: string): string {
   const [, month, day] = isoDate.split("-");
   return `${day}.${month}`;
@@ -399,12 +405,18 @@ export default function EmployeeWeekClient({
                     if (week?.status === "published") {
                       const assignedTo = assignmentMap.get(key);
 
+                      const assignmentStyle = assignedTo
+                        ? ASSIGNMENT_STYLES[assignedTo]
+                        : "border-slate-200 bg-slate-50 text-slate-500";
+
                       return (
                         <td
                           key={shiftType}
                           className="p-1 align-middle"
                         >
-                          <div className="flex h-14 w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-1 text-center text-xs font-semibold">
+                          <div
+                            className={`flex h-14 w-full items-center justify-center rounded-lg border px-1 text-center text-xs font-bold shadow-sm transition ${assignmentStyle}`}
+                          >
                             {assignedTo
                               ? EMPLOYEE_LABELS[assignedTo]
                               : "—"}
