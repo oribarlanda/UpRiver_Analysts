@@ -8,6 +8,7 @@ import CompletionBar from "@/components/CompletionBar";
 import ShiftCell from "@/components/ShiftCell";
 import SaveIndicator, { SaveState } from "@/components/SaveIndicator";
 import { LatestValueQueue, SettleInfo } from "@/lib/latestValueQueue";
+import { dayInWeek } from "@/lib/dates";
 import {
   DAY_LABELS,
   Employee,
@@ -31,8 +32,20 @@ interface MissingShift {
   shiftType: ShiftType;
 }
 
-export default function EmployeeWeekClient({ weekStart, employee }: { weekStart: string; employee: Employee }) {
+function formatDayAndMonth(isoDate: string): string {
+  const [, month, day] = isoDate.split("-");
+  return `${day}.${month}`;
+}
+
+export default function EmployeeWeekClient({
+  weekStart,
+  employee,
+}: {
+  weekStart: string;
+  employee: Employee;
+}) {
   const router = useRouter();
+
   const [week, setWeek] = useState<WeekRow | null>(null);
   const [prefs, setPrefs] = useState<Record<string, PreferenceValue>>({});
   const [assignments, setAssignments] = useState<AssignmentInfo[]>([]);
@@ -56,18 +69,24 @@ export default function EmployeeWeekClient({ weekStart, employee }: { weekStart:
 
   function handleQueueActivity(active: boolean) {
     if (!active) return;
+
     clearIdleTimer();
     setSaveState("saving");
   }
 
-  async function sendPreference(key: string, value: PreferenceValue): Promise<boolean> {
-    const [dayIndexStr, shiftType] = key.split("-");
-    const dayIndex = Number(dayIndexStr);
+  async function sendPreference(
+    key: string,
+    value: PreferenceValue
+  ): Promise<boolean> {
+    const [dayIndexString, shiftType] = key.split("-");
+    const dayIndex = Number(dayIndexString);
 
     try {
-      const res = await fetch("/api/preferences", {
+      const response = await fetch("/api/preferences", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           weekStart: weekStartRef.current,
           employee: employeeRef.current,
@@ -76,50 +95,81 @@ export default function EmployeeWeekClient({ weekStart, employee }: { weekStart:
           preference: value,
         }),
       });
-      return res.ok;
+
+      return response.ok;
     } catch {
       return false;
     }
   }
 
   function handleSettle(info: SettleInfo<PreferenceValue>) {
-    const [dayIndexStr, shiftTypeRaw] = info.key.split("-");
-    const dayIndex = Number(dayIndexStr);
+    const [dayIndexString, shiftTypeRaw] = info.key.split("-");
+    const dayIndex = Number(dayIndexString);
     const shiftType = shiftTypeRaw as ShiftType;
     const queue = queueRef.current;
+
     if (!queue) return;
 
     if (info.success) {
       setMissing((current) =>
-        current.filter((item) => !(item.dayIndex === dayIndex && item.shiftType === shiftType))
+        current.filter(
+          (item) =>
+            !(
+              item.dayIndex === dayIndex &&
+              item.shiftType === shiftType
+            )
+        )
       );
     } else {
       batchHadErrorRef.current = true;
+
       const confirmed = queue.getLastConfirmed(info.key);
 
       setPrefs((current) => {
         const next = { ...current };
-        if (confirmed === undefined) delete next[info.key];
-        else next[info.key] = confirmed;
+
+        if (confirmed === undefined) {
+          delete next[info.key];
+        } else {
+          next[info.key] = confirmed;
+        }
+
         return next;
       });
 
       setMissing((current) => {
         if (confirmed !== undefined) {
-          return current.filter((item) => !(item.dayIndex === dayIndex && item.shiftType === shiftType));
+          return current.filter(
+            (item) =>
+              !(
+                item.dayIndex === dayIndex &&
+                item.shiftType === shiftType
+              )
+          );
         }
-        if (current.some((item) => item.dayIndex === dayIndex && item.shiftType === shiftType)) {
-          return current;
-        }
+
+        const alreadyExists = current.some(
+          (item) =>
+            item.dayIndex === dayIndex &&
+            item.shiftType === shiftType
+        );
+
+        if (alreadyExists) return current;
+
         return [...current, { dayIndex, shiftType }];
       });
     }
 
     if (!queue.hasAnyActive()) {
       clearIdleTimer();
-      const finalState: SaveState = batchHadErrorRef.current ? "error" : "saved";
+
+      const finalState: SaveState = batchHadErrorRef.current
+        ? "error"
+        : "saved";
+
       setSaveState(finalState);
       batchHadErrorRef.current = false;
+
       idleTimerRef.current = setTimeout(
         () => setSaveState("idle"),
         finalState === "saved" ? 1500 : 2500
@@ -137,6 +187,7 @@ export default function EmployeeWeekClient({ weekStart, employee }: { weekStart:
 
   function loadData() {
     setLoading(true);
+
     fetch(`/api/weeks/${weekStart}`)
       .then((response) => response.json())
       .then((data) => {
@@ -146,6 +197,7 @@ export default function EmployeeWeekClient({ weekStart, employee }: { weekStart:
         }
 
         setWeek(data.week);
+
         clearIdleTimer();
         batchHadErrorRef.current = false;
         setSaveState("idle");
@@ -154,8 +206,10 @@ export default function EmployeeWeekClient({ weekStart, employee }: { weekStart:
         queue.reset();
 
         const nextPrefs: Record<string, PreferenceValue> = {};
+
         for (const preference of data.preferences as PreferenceRow[]) {
           const key = `${preference.day_index}-${preference.shift_type}`;
+
           nextPrefs[key] = preference.preference;
           queue.seedConfirmed(key, preference.preference);
         }
@@ -165,14 +219,20 @@ export default function EmployeeWeekClient({ weekStart, employee }: { weekStart:
         setMissing(data.myMissingPreferences ?? []);
         setError(null);
       })
-      .catch(() => setError("שגיאה בטעינת הנתונים."))
-      .finally(() => setLoading(false));
+      .catch(() => {
+        setError("שגיאה בטעינת הנתונים.");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }
 
   useEffect(() => {
     weekStartRef.current = weekStart;
     employeeRef.current = employee;
+
     loadData();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStart, employee]);
 
@@ -185,7 +245,11 @@ export default function EmployeeWeekClient({ weekStart, employee }: { weekStart:
 
   const completed = Object.keys(prefs).length;
 
-  function handleChange(dayIndex: number, shiftType: ShiftType, preference: PreferenceValue) {
+  function handleChange(
+    dayIndex: number,
+    shiftType: ShiftType,
+    preference: PreferenceValue
+  ) {
     const key = `${dayIndex}-${shiftType}`;
     const queue = queueRef.current!;
 
@@ -194,33 +258,59 @@ export default function EmployeeWeekClient({ weekStart, employee }: { weekStart:
       clearIdleTimer();
     }
 
-    setPrefs((current) => ({ ...current, [key]: preference }));
+    setPrefs((current) => ({
+      ...current,
+      [key]: preference,
+    }));
+
     queue.enqueue(key, preference);
   }
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await fetch("/api/auth/logout", {
+      method: "POST",
+    });
+
     router.push("/");
   }
 
   if (loading) {
-    return <div className="p-6 text-center text-slate-500">טוען...</div>;
+    return (
+      <div className="p-6 text-center text-slate-500">
+        טוען...
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="p-6 text-center text-red-600">{error}</div>;
+    return (
+      <div className="p-6 text-center text-red-600">
+        {error}
+      </div>
+    );
   }
 
   const assignmentMap = new Map<string, Employee>();
+
   for (const assignment of assignments) {
-    assignmentMap.set(`${assignment.day_index}-${assignment.shift_type}`, assignment.employee);
+    assignmentMap.set(
+      `${assignment.day_index}-${assignment.shift_type}`,
+      assignment.employee
+    );
   }
 
   return (
     <main className="mx-auto max-w-2xl space-y-4 p-3 pb-20">
       <header className="no-print flex items-center justify-between">
-        <h1 className="text-xl font-bold">שלום {EMPLOYEE_LABELS[employee]}</h1>
-        <button onClick={handleLogout} className="text-sm text-slate-500 underline">
+        <h1 className="text-xl font-bold">
+          שלום {EMPLOYEE_LABELS[employee]}
+        </h1>
+
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="text-sm text-slate-500 underline"
+        >
           התנתקות
         </button>
       </header>
@@ -230,10 +320,14 @@ export default function EmployeeWeekClient({ weekStart, employee }: { weekStart:
       {week?.status === "open" && (
         <>
           <CompletionBar completed={completed} />
+
           <PreferenceLegend />
+
           {missing.length > 0 && (
             <div className="no-print rounded-xl bg-slate-100 p-3 text-xs text-slate-600">
-              נותרו {missing.length} משמרות שטרם סומנו: כל תא אפור עם &quot;?&quot; ממתין לתשובה מפורשת (כולל &quot;יכולה&quot;).
+              נותרו {missing.length} משמרות שטרם סומנו: כל תא
+              אפור עם &quot;?&quot; ממתין לתשובה מפורשת,
+              כולל &quot;יכולה&quot;.
             </div>
           )}
         </>
@@ -241,7 +335,8 @@ export default function EmployeeWeekClient({ weekStart, employee }: { weekStart:
 
       {week?.status === "draft" && (
         <div className="rounded-xl bg-amber-50 p-4 text-center text-sm font-medium text-amber-800">
-          ההעדפות נעולות. השבוע ממתין לפרסום השיבוץ על ידי המנהל.
+          ההעדפות נעולות. השבוע ממתין לפרסום השיבוץ על ידי
+          המנהל.
         </div>
       )}
 
@@ -251,47 +346,95 @@ export default function EmployeeWeekClient({ weekStart, employee }: { weekStart:
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-xl bg-white p-2 shadow-sm">
-        <table className="w-full border-collapse text-center text-sm">
+      <div className="overflow-hidden rounded-xl bg-white p-2 shadow-sm">
+        <table className="w-full table-fixed border-collapse text-center text-sm">
+          <colgroup>
+            <col className="w-[22%]" />
+
+            {SHIFT_TYPES.map((shiftType) => (
+              <col key={shiftType} className="w-[26%]" />
+            ))}
+          </colgroup>
+
           <thead>
             <tr>
-              <th className="p-2 text-xs font-medium text-slate-500">יום</th>
+              <th className="p-2 text-xs font-medium text-slate-500">
+                יום
+              </th>
+
               {SHIFT_TYPES.map((shiftType) => (
-                <th key={shiftType} className="p-2 text-xs font-medium text-slate-500">
+                <th
+                  key={shiftType}
+                  className="p-2 text-xs font-medium text-slate-500"
+                >
                   {SHIFT_TYPE_LABELS[shiftType]}
                 </th>
               ))}
             </tr>
           </thead>
+
           <tbody>
-            {DAY_LABELS.map((label, dayIndex) => (
-              <tr key={dayIndex}>
-                <td className="p-1 text-xs font-semibold text-slate-600">{label}</td>
-                {SHIFT_TYPES.map((shiftType) => {
-                  const key = `${dayIndex}-${shiftType}`;
-                  if (week?.status === "published") {
-                    const assignedTo = assignmentMap.get(key);
+            {DAY_LABELS.map((label, dayIndex) => {
+              const dateLabel = formatDayAndMonth(
+                dayInWeek(weekStart, dayIndex)
+              );
+
+              return (
+                <tr key={dayIndex}>
+                  <td className="p-1 align-middle">
+                    <div className="flex flex-col items-center justify-center gap-1 sm:flex-row sm:gap-1.5">
+                      <span className="whitespace-nowrap text-xs font-semibold text-slate-700">
+                        {label}
+                      </span>
+
+                      <span className="whitespace-nowrap rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                        {dateLabel}
+                      </span>
+                    </div>
+                  </td>
+
+                  {SHIFT_TYPES.map((shiftType) => {
+                    const key = `${dayIndex}-${shiftType}`;
+
+                    if (week?.status === "published") {
+                      const assignedTo = assignmentMap.get(key);
+
+                      return (
+                        <td
+                          key={shiftType}
+                          className="p-1 align-middle"
+                        >
+                          <div className="flex h-14 w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-1 text-center text-xs font-semibold">
+                            {assignedTo
+                              ? EMPLOYEE_LABELS[assignedTo]
+                              : "—"}
+                          </div>
+                        </td>
+                      );
+                    }
+
                     return (
-                      <td key={shiftType} className="p-1">
-                        <div className="flex h-14 w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold">
-                          {assignedTo ? EMPLOYEE_LABELS[assignedTo] : "—"}
-                        </div>
+                      <td
+                        key={shiftType}
+                        className="p-1 align-middle"
+                      >
+                        <ShiftCell
+                          value={prefs[key]}
+                          disabled={week?.status !== "open"}
+                          onChange={(next) =>
+                            handleChange(
+                              dayIndex,
+                              shiftType,
+                              next
+                            )
+                          }
+                        />
                       </td>
                     );
-                  }
-
-                  return (
-                    <td key={shiftType} className="p-1">
-                      <ShiftCell
-                        value={prefs[key]}
-                        disabled={week?.status !== "open"}
-                        onChange={(next) => handleChange(dayIndex, shiftType, next)}
-                      />
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+                  })}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
