@@ -15,260 +15,444 @@ import {
  * Optimizes, in strict lexicographic order, over ALL 21 shifts together
  * (never per-day, never greedy):
  *   1. Never assigns a shift to an employee who marked it "cannot".
- *   2. Minimizes the gap between the highest-paid and lowest-paid employee.
- *   3. Minimizes the number of shifts assigned against "prefer_not".
- *   4. Maximizes total preference score (want=3, can=1, prefer_not=0).
- *   5. Minimizes variance between the three pay sums.
- *   6. Deterministic tie-break (fixed iteration + employee order), so the
+ *   2. Maximizes weekend coverage: every employee who has at least one
+ *      Friday/Saturday shift marked "want" or "can" should receive at
+ *      least one such weekend shift whenever a feasible solution exists.
+ *   3. Minimizes the gap between the highest-paid and lowest-paid employee.
+ *   4. Minimizes the number of shifts assigned against "prefer_not".
+ *   5. Maximizes total preference score (want=3, can=1, prefer_not=0).
+ *   6. Minimizes variance between the three pay sums.
+ *   7. Deterministic tie-break (fixed iteration + employee order), so the
  *      same input always produces the same output.
  *
- * State design
- * ------------
- * The sum of ALL 21 shift unit-values is fixed regardless of assignment
- * (every shift is assigned to exactly one employee). So at any point in
- * the sequence, if we know the cumulative pay of Hila and Yaara, Omer's
- * cumulative pay is simply (processed-total - hila - yaara). This lets us
- * use a compact state of (hilaSum, yaaraSum) instead of tracking all three.
- *
- * Because objectives 2 and 5 (gap, variance) depend only on the FINAL
- * state and not on the path taken, while objectives 3 and 4 are additive
- * along the path, the algorithm runs in three phases:
- *   A. Forward reachability - which (hila,yaara) end-states are reachable.
- *   B. Pick the minimal gap G* among reachable end-states, then compute,
- *      backward, the set of states at every step that can still reach an
- *      end-state with gap === G*.
- *   C. Forward cost DP restricted to those valid states, minimizing
- *      (prefer_not count, then maximizing preference score). Among the
- *      resulting best final states (all sharing gap === G*), break ties
- *      by minimal variance, then deterministic ordering.
+ * Weekend coverage is represented by a 3-bit mask (one bit per employee).
+ * An employee is considered weekend-eligible only if at least one Friday
+ * or Saturday shift is marked "want" or "can". Assigning "prefer_not" does
+ * not satisfy the weekend requirement.
  */
 
 type Pref = (employee: Employee, slotIndex: number) => PreferenceValue;
 
+type AssignmentOption = Employee | "unassigned";
+
+interface ParsedState {
+  hilaSum: number;
+  yaaraSum: number;
+  weekendMask: number;
+}
+
 interface DPCostEntry {
-  obj3: number; // prefer_not count (minimize)
-  obj4: number; // preference score (maximize)
+  preferNotCount: number;
+  preferenceScore: number;
   prevKey: string | null;
-  prevEmployee: Employee | "unassigned" | null;
+  prevEmployee: AssignmentOption | null;
 }
 
-function stateKey(h: number, y: number): string {
-  return `${h},${y}`;
+const EMPLOYEE_BITS: Record<Employee, number> = {
+  hila: 1,
+  yaara: 2,
+  omer: 4,
+};
+
+function stateKey(hilaSum: number, yaaraSum: number, weekendMask: number): string {
+  return `${hilaSum},${yaaraSum},${weekendMask}`;
 }
 
-function feasibleOptions(
-  slotIndex: number,
-  pref: Pref
-): Employee[] {
-  return EMPLOYEES.filter((e) => pref(e, slotIndex) !== "cannot");
+function parseStateKey(key: string): ParsedState {
+  const [hilaSum, yaaraSum, weekendMask] = key.split(",").map(Number);
+  return { hilaSum, yaaraSum, weekendMask };
+}
+
+function feasibleOptions(slotIndex: number, pref: Pref): Employee[] {
+  return EMPLOYEES.filter((employee) => pref(employee, slotIndex) !== "cannot");
+}
+
+function isWeekendSlot(slot: ShiftSlot): boolean {
+  return slot.dayIndex === 5 || slot.dayIndex === 6;
+}
+
+function isWeekendPreferenceAcceptable(preference: PreferenceValue): boolean {
+  return preference === "want" || preference === "can";
+}
+
+function countBits(value: number): number {
+  let count = 0;
+  let current = value;
+
+  while (current > 0) {
+    count += current & 1;
+    current >>= 1;
+  }
+
+  return count;
+}
+
+function nextState(
+  current: ParsedState,
+  option: AssignmentOption,
+  slot: ShiftSlot,
+  preference: PreferenceValue | null
+): ParsedState {
+  let { hilaSum, yaaraSum, weekendMask } = current;
+
+  if (option === "hila") hilaSum += slot.unit;
+  else if (option === "yaara") yaaraSum += slot.unit;
+
+  if (
+    option !== "unassigned" &&
+    isWeekendSlot(slot) &&
+    preference !== null &&
+    isWeekendPreferenceAcceptable(preference)
+  ) {
+    weekendMask |= EMPLOYEE_BITS[option];
+  }
+
+  return { hilaSum, yaaraSum, weekendMask };
 }
 
 export function generateAssignments(
   slots: ShiftSlot[],
-  preferenceLookup: (employee: Employee, dayIndex: number, shiftType: string) => PreferenceValue
+  preferenceLookup: (
+    employee: Employee,
+    dayIndex: number,
+    shiftType: string
+  ) => PreferenceValue
 ): ScheduleResult {
-  const n = slots.length;
+  const slotCount = slots.length;
 
   const pref: Pref = (employee, slotIndex) =>
-    preferenceLookup(employee, slots[slotIndex].dayIndex, slots[slotIndex].shiftType);
+    preferenceLookup(
+      employee,
+      slots[slotIndex].dayIndex,
+      slots[slotIndex].shiftType
+    );
 
-  // Prefix totals: processed-total after k slots (blocked slots contribute 0).
   const prefixTotal: number[] = [0];
   const blocked: boolean[] = [];
   const options: Employee[][] = [];
-  for (let i = 0; i < n; i++) {
-    const opts = feasibleOptions(i, pref);
-    options.push(opts);
-    const isBlocked = opts.length === 0;
+
+  let eligibleWeekendMask = 0;
+
+  for (let slotIndex = 0; slotIndex < slotCount; slotIndex++) {
+    const slotOptions = feasibleOptions(slotIndex, pref);
+    options.push(slotOptions);
+
+    const isBlocked = slotOptions.length === 0;
     blocked.push(isBlocked);
-    prefixTotal.push(prefixTotal[i] + (isBlocked ? 0 : slots[i].unit));
-  }
+    prefixTotal.push(
+      prefixTotal[slotIndex] + (isBlocked ? 0 : slots[slotIndex].unit)
+    );
 
-  // --- Phase A: forward reachability of (hilaSum, yaaraSum) states ---
-  let reachable: Set<string> = new Set([stateKey(0, 0)]);
-  const reachableByStep: Set<string>[] = [reachable];
-
-  for (let i = 0; i < n; i++) {
-    const next: Set<string> = new Set();
-    const opts = blocked[i] ? (["unassigned"] as const) : options[i];
-    for (const key of reachable) {
-      const [h, y] = key.split(",").map(Number);
-      for (const opt of opts) {
-        let nh = h;
-        let ny = y;
-        if (opt === "hila") nh = h + slots[i].unit;
-        else if (opt === "yaara") ny = y + slots[i].unit;
-        // "omer" and "unassigned" leave h,y unchanged
-        next.add(stateKey(nh, ny));
+    if (isWeekendSlot(slots[slotIndex])) {
+      for (const employee of EMPLOYEES) {
+        if (isWeekendPreferenceAcceptable(pref(employee, slotIndex))) {
+          eligibleWeekendMask |= EMPLOYEE_BITS[employee];
+        }
       }
     }
-    reachable = next;
+  }
+
+  // Phase A: forward reachability of (hila, yaara, weekendMask) states.
+  let reachable = new Set<string>([stateKey(0, 0, 0)]);
+  const reachableByStep: Set<string>[] = [reachable];
+
+  for (let slotIndex = 0; slotIndex < slotCount; slotIndex++) {
+    const nextReachable = new Set<string>();
+    const slotOptions: readonly AssignmentOption[] = blocked[slotIndex]
+      ? ["unassigned"]
+      : options[slotIndex];
+
+    for (const key of reachable) {
+      const current = parseStateKey(key);
+
+      for (const option of slotOptions) {
+        const preference =
+          option === "unassigned" ? null : pref(option, slotIndex);
+        const next = nextState(
+          current,
+          option,
+          slots[slotIndex],
+          preference
+        );
+
+        nextReachable.add(
+          stateKey(next.hilaSum, next.yaaraSum, next.weekendMask)
+        );
+      }
+    }
+
+    reachable = nextReachable;
     reachableByStep.push(reachable);
   }
 
-  // --- Determine minimal gap G* among reachable end-states ---
-  function gapOf(h: number, y: number): number {
-    const total = prefixTotal[n];
-    const o = total - h - y;
-    return Math.max(h, y, o) - Math.min(h, y, o);
+  function weekendCoverageOf(mask: number): number {
+    return countBits(mask & eligibleWeekendMask);
   }
 
-  function varianceOf(h: number, y: number): number {
-    const total = prefixTotal[n];
-    const o = total - h - y;
+  function gapOf(hilaSum: number, yaaraSum: number): number {
+    const total = prefixTotal[slotCount];
+    const omerSum = total - hilaSum - yaaraSum;
+
+    return (
+      Math.max(hilaSum, yaaraSum, omerSum) -
+      Math.min(hilaSum, yaaraSum, omerSum)
+    );
+  }
+
+  function varianceOf(hilaSum: number, yaaraSum: number): number {
+    const total = prefixTotal[slotCount];
+    const omerSum = total - hilaSum - yaaraSum;
     const mean = total / 3;
-    return (h - mean) ** 2 + (y - mean) ** 2 + (o - mean) ** 2;
+
+    return (
+      (hilaSum - mean) ** 2 +
+      (yaaraSum - mean) ** 2 +
+      (omerSum - mean) ** 2
+    );
+  }
+
+  // First maximize how many eligible employees receive an acceptable
+  // weekend shift. Then, among those states, minimize the pay gap.
+  let bestWeekendCoverage = -1;
+
+  for (const key of reachableByStep[slotCount]) {
+    const { weekendMask } = parseStateKey(key);
+    bestWeekendCoverage = Math.max(
+      bestWeekendCoverage,
+      weekendCoverageOf(weekendMask)
+    );
   }
 
   let bestGap = Infinity;
-  for (const key of reachableByStep[n]) {
-    const [h, y] = key.split(",").map(Number);
-    const g = gapOf(h, y);
-    if (g < bestGap) bestGap = g;
+
+  for (const key of reachableByStep[slotCount]) {
+    const { hilaSum, yaaraSum, weekendMask } = parseStateKey(key);
+
+    if (weekendCoverageOf(weekendMask) !== bestWeekendCoverage) continue;
+
+    bestGap = Math.min(bestGap, gapOf(hilaSum, yaaraSum));
   }
 
-  // --- Phase B: backward-valid state sets (can reach an allowed end-state) ---
-  const validByStep: Set<string>[] = new Array(n + 1);
-  validByStep[n] = new Set(
-    Array.from(reachableByStep[n]).filter((key) => {
-      const [h, y] = key.split(",").map(Number);
-      return gapOf(h, y) === bestGap;
+  // Phase B: backward-valid state sets. A state is valid only if it can
+  // still reach an end-state with maximal weekend coverage and minimal gap.
+  const validByStep: Set<string>[] = new Array(slotCount + 1);
+
+  validByStep[slotCount] = new Set(
+    Array.from(reachableByStep[slotCount]).filter((key) => {
+      const { hilaSum, yaaraSum, weekendMask } = parseStateKey(key);
+
+      return (
+        weekendCoverageOf(weekendMask) === bestWeekendCoverage &&
+        gapOf(hilaSum, yaaraSum) === bestGap
+      );
     })
   );
 
-  for (let i = n - 1; i >= 0; i--) {
+  for (let slotIndex = slotCount - 1; slotIndex >= 0; slotIndex--) {
     const valid = new Set<string>();
-    const opts = blocked[i] ? (["unassigned"] as const) : options[i];
-    for (const key of reachableByStep[i]) {
-      const [h, y] = key.split(",").map(Number);
-      for (const opt of opts) {
-        let nh = h;
-        let ny = y;
-        if (opt === "hila") nh = h + slots[i].unit;
-        else if (opt === "yaara") ny = y + slots[i].unit;
-        if (validByStep[i + 1].has(stateKey(nh, ny))) {
+    const slotOptions: readonly AssignmentOption[] = blocked[slotIndex]
+      ? ["unassigned"]
+      : options[slotIndex];
+
+    for (const key of reachableByStep[slotIndex]) {
+      const current = parseStateKey(key);
+
+      for (const option of slotOptions) {
+        const preference =
+          option === "unassigned" ? null : pref(option, slotIndex);
+        const next = nextState(
+          current,
+          option,
+          slots[slotIndex],
+          preference
+        );
+        const nextKey = stateKey(
+          next.hilaSum,
+          next.yaaraSum,
+          next.weekendMask
+        );
+
+        if (validByStep[slotIndex + 1].has(nextKey)) {
           valid.add(key);
           break;
         }
       }
     }
-    validByStep[i] = valid;
+
+    validByStep[slotIndex] = valid;
   }
 
-  // --- Phase C: forward cost DP (minimize prefer_not count, maximize score) ---
-  let dp: Map<string, DPCostEntry> = new Map([
-    [stateKey(0, 0), { obj3: 0, obj4: 0, prevKey: null, prevEmployee: null }],
+  // Phase C: among the valid states, minimize prefer_not assignments and
+  // then maximize the total preference score.
+  let dp = new Map<string, DPCostEntry>([
+    [
+      stateKey(0, 0, 0),
+      {
+        preferNotCount: 0,
+        preferenceScore: 0,
+        prevKey: null,
+        prevEmployee: null,
+      },
+    ],
   ]);
+
   const dpByStep: Map<string, DPCostEntry>[] = [dp];
 
-  function isBetter(a: DPCostEntry, b: DPCostEntry): boolean {
-    // Lower obj3 wins; tie -> higher obj4 wins.
-    if (a.obj3 !== b.obj3) return a.obj3 < b.obj3;
-    return a.obj4 > b.obj4;
+  function isBetterCost(candidate: DPCostEntry, existing: DPCostEntry): boolean {
+    if (candidate.preferNotCount !== existing.preferNotCount) {
+      return candidate.preferNotCount < existing.preferNotCount;
+    }
+
+    return candidate.preferenceScore > existing.preferenceScore;
   }
 
-  for (let i = 0; i < n; i++) {
-    const next: Map<string, DPCostEntry> = new Map();
-    const opts = blocked[i] ? (["unassigned"] as const) : options[i];
-    // Deterministic iteration: sort state keys, then iterate options in fixed order.
+  for (let slotIndex = 0; slotIndex < slotCount; slotIndex++) {
+    const nextDp = new Map<string, DPCostEntry>();
+    const slotOptions: readonly AssignmentOption[] = blocked[slotIndex]
+      ? ["unassigned"]
+      : options[slotIndex];
     const sortedKeys = Array.from(dp.keys()).sort();
-    for (const key of sortedKeys) {
-      if (!validByStep[i].has(key)) continue;
-      const cur = dp.get(key)!;
-      const [h, y] = key.split(",").map(Number);
-      for (const opt of opts) {
-        let nh = h;
-        let ny = y;
-        let inc3 = 0;
-        let inc4 = 0;
-        if (opt !== "unassigned") {
-          const p = pref(opt as Employee, i);
-          inc3 = p === "prefer_not" ? 1 : 0;
-          inc4 = PREFERENCE_SCORE[p];
-        }
-        if (opt === "hila") nh = h + slots[i].unit;
-        else if (opt === "yaara") ny = y + slots[i].unit;
 
-        const nKey = stateKey(nh, ny);
-        if (!validByStep[i + 1].has(nKey)) continue;
+    for (const key of sortedKeys) {
+      if (!validByStep[slotIndex].has(key)) continue;
+
+      const currentCost = dp.get(key)!;
+      const current = parseStateKey(key);
+
+      for (const option of slotOptions) {
+        const preference =
+          option === "unassigned" ? null : pref(option, slotIndex);
+        const next = nextState(
+          current,
+          option,
+          slots[slotIndex],
+          preference
+        );
+        const nextKey = stateKey(
+          next.hilaSum,
+          next.yaaraSum,
+          next.weekendMask
+        );
+
+        if (!validByStep[slotIndex + 1].has(nextKey)) continue;
 
         const candidate: DPCostEntry = {
-          obj3: cur.obj3 + inc3,
-          obj4: cur.obj4 + inc4,
+          preferNotCount:
+            currentCost.preferNotCount +
+            (preference === "prefer_not" ? 1 : 0),
+          preferenceScore:
+            currentCost.preferenceScore +
+            (preference === null ? 0 : PREFERENCE_SCORE[preference]),
           prevKey: key,
-          prevEmployee: opt,
+          prevEmployee: option,
         };
-        const existing = next.get(nKey);
-        if (!existing || isBetter(candidate, existing)) {
-          next.set(nKey, candidate);
+
+        const existing = nextDp.get(nextKey);
+
+        if (!existing || isBetterCost(candidate, existing)) {
+          nextDp.set(nextKey, candidate);
         }
       }
     }
-    dp = next;
+
+    dp = nextDp;
     dpByStep.push(dp);
   }
 
-  // --- Pick best final state: obj3 asc, obj4 desc, variance asc, deterministic ---
+  // Pick the best final state by cost, then variance, then deterministic key.
   let bestKey: string | null = null;
   let bestEntry: DPCostEntry | null = null;
   let bestVariance = Infinity;
-  const finalKeys = Array.from(dp.keys()).sort();
-  for (const key of finalKeys) {
+
+  for (const key of Array.from(dp.keys()).sort()) {
     const entry = dp.get(key)!;
-    const [h, y] = key.split(",").map(Number);
-    const variance = varianceOf(h, y);
-    if (bestEntry === null) {
+    const { hilaSum, yaaraSum } = parseStateKey(key);
+    const variance = varianceOf(hilaSum, yaaraSum);
+
+    if (
+      bestEntry === null ||
+      isBetterCost(entry, bestEntry) ||
+      (entry.preferNotCount === bestEntry.preferNotCount &&
+        entry.preferenceScore === bestEntry.preferenceScore &&
+        variance < bestVariance)
+    ) {
       bestKey = key;
       bestEntry = entry;
       bestVariance = variance;
-      continue;
-    }
-    if (isBetter(entry, bestEntry)) {
-      bestKey = key;
-      bestEntry = entry;
-      bestVariance = variance;
-    } else if (entry.obj3 === bestEntry.obj3 && entry.obj4 === bestEntry.obj4) {
-      if (variance < bestVariance) {
-        bestKey = key;
-        bestEntry = entry;
-        bestVariance = variance;
-      }
     }
   }
 
-  // --- Reconstruct path via backpointers ---
-  const assignmentsRev: (Employee | "unassigned")[] = [];
-  let curKey = bestKey;
-  for (let i = n; i > 0; i--) {
-    const entry = dpByStep[i].get(curKey!)!;
-    assignmentsRev.push(entry.prevEmployee as Employee | "unassigned");
-    curKey = entry.prevKey;
+  if (bestKey === null) {
+    throw new Error("Scheduler could not find a valid assignment path.");
   }
-  const assignmentsOptions = assignmentsRev.reverse();
 
+  // Reconstruct the chosen assignment path.
+  const reversedOptions: AssignmentOption[] = [];
+  let currentKey: string | null = bestKey;
+
+  for (let step = slotCount; step > 0; step--) {
+    const entry = dpByStep[step].get(currentKey!);
+
+    if (!entry || entry.prevEmployee === null) {
+      throw new Error("Scheduler failed to reconstruct the assignment path.");
+    }
+
+    reversedOptions.push(entry.prevEmployee);
+    currentKey = entry.prevKey;
+  }
+
+  const assignmentOptions = reversedOptions.reverse();
   const assignments: GeneratedAssignment[] = [];
-  const blockedSlots: { dayIndex: number; shiftType: ShiftSlot["shiftType"] }[] = [];
-  const sums: Record<Employee, number> = { hila: 0, yaara: 0, omer: 0 };
+  const blockedSlots: {
+    dayIndex: number;
+    shiftType: ShiftSlot["shiftType"];
+  }[] = [];
+  const sums: Record<Employee, number> = {
+    hila: 0,
+    yaara: 0,
+    omer: 0,
+  };
   const warnings: ScheduleWarning[] = [];
 
-  for (let i = 0; i < n; i++) {
-    const opt = assignmentsOptions[i];
-    const slot = slots[i];
-    if (opt === "unassigned") {
-      blockedSlots.push({ dayIndex: slot.dayIndex, shiftType: slot.shiftType });
-      assignments.push({ dayIndex: slot.dayIndex, shiftType: slot.shiftType, employee: null });
+  for (let slotIndex = 0; slotIndex < slotCount; slotIndex++) {
+    const option = assignmentOptions[slotIndex];
+    const slot = slots[slotIndex];
+
+    if (option === "unassigned") {
+      blockedSlots.push({
+        dayIndex: slot.dayIndex,
+        shiftType: slot.shiftType,
+      });
+      assignments.push({
+        dayIndex: slot.dayIndex,
+        shiftType: slot.shiftType,
+        employee: null,
+      });
       continue;
     }
-    sums[opt] += slot.unit;
-    assignments.push({ dayIndex: slot.dayIndex, shiftType: slot.shiftType, employee: opt });
-    const p = pref(opt, i);
-    if (p === "prefer_not" || p === "cannot") {
-      warnings.push({ dayIndex: slot.dayIndex, shiftType: slot.shiftType, employee: opt, preference: p });
+
+    sums[option] += slot.unit;
+    assignments.push({
+      dayIndex: slot.dayIndex,
+      shiftType: slot.shiftType,
+      employee: option,
+    });
+
+    const preference = pref(option, slotIndex);
+
+    if (preference === "prefer_not" || preference === "cannot") {
+      warnings.push({
+        dayIndex: slot.dayIndex,
+        shiftType: slot.shiftType,
+        employee: option,
+        preference,
+      });
     }
   }
 
-  const total = sums.hila + sums.yaara + sums.omer;
-  const gapUnits = Math.max(sums.hila, sums.yaara, sums.omer) - Math.min(sums.hila, sums.yaara, sums.omer);
+  const gapUnits =
+    Math.max(sums.hila, sums.yaara, sums.omer) -
+    Math.min(sums.hila, sums.yaara, sums.omer);
   const maxSum = Math.max(sums.hila, sums.yaara, sums.omer);
   const gapPercent = maxSum > 0 ? (gapUnits / maxSum) * 100 : 0;
 
@@ -290,26 +474,59 @@ export function generateAssignments(
 export function recomputeFromAssignments(
   slots: ShiftSlot[],
   assignments: GeneratedAssignment[],
-  preferenceLookup: (employee: Employee, dayIndex: number, shiftType: string) => PreferenceValue
-): { sums: Record<Employee, number>; gapUnits: number; gapPercent: number; warnings: ScheduleWarning[] } {
-  const sums: Record<Employee, number> = { hila: 0, yaara: 0, omer: 0 };
+  preferenceLookup: (
+    employee: Employee,
+    dayIndex: number,
+    shiftType: string
+  ) => PreferenceValue
+): {
+  sums: Record<Employee, number>;
+  gapUnits: number;
+  gapPercent: number;
+  warnings: ScheduleWarning[];
+} {
+  const sums: Record<Employee, number> = {
+    hila: 0,
+    yaara: 0,
+    omer: 0,
+  };
   const warnings: ScheduleWarning[] = [];
-
   const slotMap = new Map<string, ShiftSlot>();
-  for (const s of slots) slotMap.set(`${s.dayIndex}-${s.shiftType}`, s);
 
-  for (const a of assignments) {
-    if (!a.employee) continue;
-    const slot = slotMap.get(`${a.dayIndex}-${a.shiftType}`);
+  for (const slot of slots) {
+    slotMap.set(`${slot.dayIndex}-${slot.shiftType}`, slot);
+  }
+
+  for (const assignment of assignments) {
+    if (!assignment.employee) continue;
+
+    const slot = slotMap.get(
+      `${assignment.dayIndex}-${assignment.shiftType}`
+    );
+
     if (!slot) continue;
-    sums[a.employee] += slot.unit;
-    const p = preferenceLookup(a.employee, a.dayIndex, a.shiftType);
-    if (p === "prefer_not" || p === "cannot") {
-      warnings.push({ dayIndex: a.dayIndex, shiftType: a.shiftType, employee: a.employee, preference: p });
+
+    sums[assignment.employee] += slot.unit;
+
+    const preference = preferenceLookup(
+      assignment.employee,
+      assignment.dayIndex,
+      assignment.shiftType
+    );
+
+    if (preference === "prefer_not" || preference === "cannot") {
+      warnings.push({
+        dayIndex: assignment.dayIndex,
+        shiftType: assignment.shiftType,
+        employee: assignment.employee,
+        preference,
+      });
     }
   }
 
-  const gapUnits = Math.max(sums.hila, sums.yaara, sums.omer) - Math.min(sums.hila, sums.yaara, sums.omer);
+  const gapUnits =
+    Math.max(sums.hila, sums.yaara, sums.omer) -
+    Math.min(sums.hila, sums.yaara, sums.omer);
   const maxSum = Math.max(sums.hila, sums.yaara, sums.omer);
   const gapPercent = maxSum > 0 ? (gapUnits / maxSum) * 100 : 0;
 
