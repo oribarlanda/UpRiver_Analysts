@@ -2,19 +2,53 @@ import { describe, expect, it } from "vitest";
 import { generateAssignments } from "../lib/scheduler";
 import { buildWeekSlots } from "../lib/weekSlots";
 import { shiftUnit } from "../lib/payUnits";
-import { Employee, PreferenceValue } from "../lib/types";
+import {
+  Employee,
+  PreferenceValue,
+  SHIFT_TYPES,
+} from "../lib/types";
 
 type PrefMap = Record<string, PreferenceValue>;
 
 function makeLookup(map: PrefMap) {
-  return (employee: Employee, dayIndex: number, shiftType: string): PreferenceValue => {
+  return (
+    employee: Employee,
+    dayIndex: number,
+    shiftType: string
+  ): PreferenceValue => {
     const key = `${employee}-${dayIndex}-${shiftType}`;
     return map[key] ?? "can";
   };
 }
 
-function allCanPreferences(): PrefMap {
-  return {};
+function assignmentsForDay(
+  result: ReturnType<typeof generateAssignments>,
+  dayIndex: number
+) {
+  return result.assignments.filter(
+    (assignment) => assignment.dayIndex === dayIndex
+  );
+}
+
+function premiumMorningEveningCounts(
+  result: ReturnType<typeof generateAssignments>,
+  premiumDays: number[]
+): Record<Employee, number> {
+  const counts: Record<Employee, number> = {
+    hila: 0,
+    yaara: 0,
+    omer: 0,
+  };
+
+  for (const assignment of result.assignments) {
+    if (!assignment.employee) continue;
+    if (!premiumDays.includes(assignment.dayIndex)) continue;
+    if (assignment.shiftType === "afternoon") continue;
+
+    counts[assignment.employee] += 1;
+  }
+
+  return counts;
 }
 
 describe("shiftUnit / pay units", () => {
@@ -37,16 +71,21 @@ describe("generateAssignments", () => {
     const prefs: PrefMap = {
       "hila-0-morning": "cannot",
       "yaara-0-morning": "cannot",
-      // omer can -> must be assigned to omer
     };
+
     const result = generateAssignments(slots, makeLookup(prefs));
-    const slot = result.assignments.find((a) => a.dayIndex === 0 && a.shiftType === "morning");
+    const slot = result.assignments.find(
+      (assignment) =>
+        assignment.dayIndex === 0 &&
+        assignment.shiftType === "morning"
+    );
+
     expect(slot?.employee).toBe("omer");
 
-    // Global check: no assignment ever violates "cannot"
-    for (const a of result.assignments) {
-      if (!a.employee) continue;
-      const key = `${a.employee}-${a.dayIndex}-${a.shiftType}`;
+    for (const assignment of result.assignments) {
+      if (!assignment.employee) continue;
+
+      const key = `${assignment.employee}-${assignment.dayIndex}-${assignment.shiftType}`;
       expect(prefs[key]).not.toBe("cannot");
     }
   });
@@ -58,48 +97,137 @@ describe("generateAssignments", () => {
       "yaara-2-evening": "cannot",
       "omer-2-evening": "cannot",
     };
+
     const result = generateAssignments(slots, makeLookup(prefs));
-    expect(result.blockedSlots).toContainEqual({ dayIndex: 2, shiftType: "evening" });
-    const slot = result.assignments.find((a) => a.dayIndex === 2 && a.shiftType === "evening");
+
+    expect(result.blockedSlots).toContainEqual({
+      dayIndex: 2,
+      shiftType: "evening",
+    });
+
+    const slot = result.assignments.find(
+      (assignment) =>
+        assignment.dayIndex === 2 &&
+        assignment.shiftType === "evening"
+    );
+
     expect(slot?.employee).toBeNull();
   });
 
-  it("allows multiple shifts in the same day for the same employee", () => {
+  it("allows two shifts in the same day for the same employee", () => {
     const slots = buildWeekSlots([5, 6]);
     const prefs: PrefMap = {};
-    // Make Hila strongly preferred for all of day 0, others prefer not to.
-    for (const st of ["morning", "afternoon", "evening"]) {
-      prefs[`hila-0-${st}`] = "want";
-      prefs[`yaara-0-${st}`] = "prefer_not";
-      prefs[`omer-0-${st}`] = "prefer_not";
+
+    for (const shiftType of SHIFT_TYPES) {
+      prefs[`hila-0-${shiftType}`] = "want";
+      prefs[`yaara-0-${shiftType}`] = "prefer_not";
+      prefs[`omer-0-${shiftType}`] = "prefer_not";
     }
+
     const result = generateAssignments(slots, makeLookup(prefs));
-    const day0 = result.assignments.filter((a) => a.dayIndex === 0);
-    const hilaCount = day0.filter((a) => a.employee === "hila").length;
-    // Not strictly required to be 3, but the algorithm must not forbid it -
-    // verify at least that Hila received more than one shift that day.
+    const hilaCount = assignmentsForDay(result, 0).filter(
+      (assignment) => assignment.employee === "hila"
+    ).length;
+
     expect(hilaCount).toBeGreaterThanOrEqual(2);
   });
 
-  it("minimizes the GLOBAL gap across the whole week, not per-day balance", () => {
-    // Construct a scenario where a per-day-greedy approach would balance
-    // each day individually and end up with a worse total gap than the
-    // global optimum. With all "can" preferences and default premium days,
-    // the total (192 units) is evenly divisible by 3, so the true global
-    // optimum has gap 0 - even though no single day's 3 shifts (10,4,10)
-    // can be split evenly across 3 people on their own.
+  it("does not assign all three shifts of a day to one employee when another employee has an acceptable option", () => {
     const slots = buildWeekSlots([5, 6]);
-    const result = generateAssignments(slots, makeLookup(allCanPreferences()));
-    expect(result.gapUnits).toBe(0);
+    const result = generateAssignments(slots, makeLookup({}));
+
+    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+      const dayAssignments = assignmentsForDay(result, dayIndex);
+
+      for (const employee of ["hila", "yaara", "omer"] as Employee[]) {
+        const count = dayAssignments.filter(
+          (assignment) => assignment.employee === employee
+        ).length;
+
+        expect(count).toBeLessThanOrEqual(2);
+      }
+    }
   });
 
-  it("reaches perfect 8.00 / 8.00 / 8.00 equality when achievable", () => {
-    const slots = buildWeekSlots([5, 6]); // default premium days: total = 192 units
-    const result = generateAssignments(slots, makeLookup(allCanPreferences()));
-    expect(result.gapUnits).toBe(0);
-    expect(result.sums.hila).toBe(64);
-    expect(result.sums.yaara).toBe(64);
-    expect(result.sums.omer).toBe(64);
+  it("allows all three shifts to one employee when every other employee marked the whole day prefer_not/cannot", () => {
+    const slots = buildWeekSlots([]).filter(
+      (slot) => slot.dayIndex === 0
+    );
+    const prefs: PrefMap = {};
+
+    for (const employee of ["yaara", "omer"] as Employee[]) {
+      for (const shiftType of SHIFT_TYPES) {
+        prefs[`${employee}-0-${shiftType}`] = "cannot";
+      }
+    }
+
+    const result = generateAssignments(slots, makeLookup(prefs));
+
+    expect(result.assignments).toHaveLength(3);
+    expect(
+      result.assignments.every(
+        (assignment) => assignment.employee === "hila"
+      )
+    ).toBe(true);
+  });
+
+  it("gives each eligible employee at least one premium morning/evening when feasible", () => {
+    const premiumDays = [5, 6];
+    const slots = buildWeekSlots(premiumDays);
+    const result = generateAssignments(slots, makeLookup({}));
+    const counts = premiumMorningEveningCounts(result, premiumDays);
+
+    expect(counts.hila).toBeGreaterThanOrEqual(1);
+    expect(counts.yaara).toBeGreaterThanOrEqual(1);
+    expect(counts.omer).toBeGreaterThanOrEqual(1);
+  });
+
+  it("uses admin-marked premium days, not only Friday and Saturday", () => {
+    const premiumDays = [2];
+    const slots = buildWeekSlots(premiumDays);
+    const prefs: PrefMap = {
+      "omer-2-morning": "prefer_not",
+      "omer-2-evening": "prefer_not",
+    };
+
+    const result = generateAssignments(slots, makeLookup(prefs));
+    const counts = premiumMorningEveningCounts(result, premiumDays);
+
+    expect(counts.hila).toBeGreaterThanOrEqual(1);
+    expect(counts.yaara).toBeGreaterThanOrEqual(1);
+    expect(counts.omer).toBe(0);
+  });
+
+  it("does not require premium morning/evening coverage for an employee who marked all of them prefer_not/cannot", () => {
+    const premiumDays = [5, 6];
+    const slots = buildWeekSlots(premiumDays);
+    const prefs: PrefMap = {};
+
+    for (const dayIndex of premiumDays) {
+      prefs[`omer-${dayIndex}-morning`] = "prefer_not";
+      prefs[`omer-${dayIndex}-evening`] = "cannot";
+    }
+
+    const result = generateAssignments(slots, makeLookup(prefs));
+    const counts = premiumMorningEveningCounts(result, premiumDays);
+
+    expect(counts.hila).toBeGreaterThanOrEqual(1);
+    expect(counts.yaara).toBeGreaterThanOrEqual(1);
+    expect(counts.omer).toBe(0);
+  });
+
+  it("minimizes the global gap under the no-triple-shift rule", () => {
+    const slots = buildWeekSlots([5, 6]);
+    const result = generateAssignments(slots, makeLookup({}));
+
+    // Without the no-triple rule, 64/64/64 is possible. Under the new hard
+    // daily rule, the exact global optimum is 63/64/65 (gap 2 eighth-units).
+    expect(result.gapUnits).toBe(2);
+    expect(
+      [result.sums.hila, result.sums.yaara, result.sums.omer].sort(
+        (a, b) => a - b
+      )
+    ).toEqual([63, 64, 65]);
   });
 
   it("produces a deterministic result for the same input", () => {
@@ -109,19 +237,28 @@ describe("generateAssignments", () => {
       "yaara-3-evening": "prefer_not",
       "omer-4-afternoon": "cannot",
     };
+
     const result1 = generateAssignments(slots, makeLookup(prefs));
     const result2 = generateAssignments(slots, makeLookup(prefs));
+
     expect(result1).toEqual(result2);
   });
 
   it("never produces negative or malformed sums", () => {
     const slots = buildWeekSlots([0, 3]);
     const result = generateAssignments(slots, makeLookup({}));
+
     expect(result.sums.hila).toBeGreaterThanOrEqual(0);
     expect(result.sums.yaara).toBeGreaterThanOrEqual(0);
     expect(result.sums.omer).toBeGreaterThanOrEqual(0);
-    const total = result.sums.hila + result.sums.yaara + result.sums.omer;
-    const expectedTotal = slots.reduce((acc, s) => acc + s.unit, 0);
-    expect(total + result.blockedSlots.length * 0).toBeLessThanOrEqual(expectedTotal);
+
+    const total =
+      result.sums.hila + result.sums.yaara + result.sums.omer;
+    const expectedTotal = slots.reduce(
+      (accumulator, slot) => accumulator + slot.unit,
+      0
+    );
+
+    expect(total).toBeLessThanOrEqual(expectedTotal);
   });
 });
