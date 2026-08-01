@@ -67,14 +67,14 @@ const ASSIGNMENT_IMAGE_COLORS: Record<
 const SHIFT_TIMES: Record<ShiftType, ShiftTime> = {
   morning: {
     start: "080000",
-    end: "100000",
+    end: "090000",
   },
   afternoon: {
-    start: "120000",
-    end: "130000",
+    start: "140000",
+    end: "143000",
   },
   evening: {
-    start: "200000",
+    start: "210000",
     end: "220000",
   },
 };
@@ -97,6 +97,18 @@ function formatFullDate(isoDate: string): string {
 
 function compactDate(isoDate: string): string {
   return isoDate.replaceAll("-", "");
+}
+
+function escapeIcsText(value: string): string {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll(";", "\\;")
+    .replaceAll(",", "\\,")
+    .replaceAll("\n", "\\n");
+}
+
+function formatIcsDateTime(isoDate: string, compactTime: string): string {
+  return `${compactDate(isoDate)}T${compactTime}`;
 }
 
 function drawRoundedRect(
@@ -158,6 +170,7 @@ export default function EmployeeWeekClient({
   const [sharingSchedule, setSharingSchedule] = useState(false);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [exportingCalendar, setExportingCalendar] = useState(false);
 
   const weekStartRef = useRef(weekStart);
   const employeeRef = useRef(employee);
@@ -411,6 +424,110 @@ export default function EmployeeWeekClient({
     });
 
     return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  }
+
+  async function handleExportAllCalendar(
+    employeeAssignments: AssignmentInfo[]
+  ) {
+    if (exportingCalendar || employeeAssignments.length === 0) return;
+
+    setExportingCalendar(true);
+
+    try {
+      const nowStamp = new Date()
+        .toISOString()
+        .replaceAll("-", "")
+        .replaceAll(":", "")
+        .replace(/\.\d{3}Z$/, "Z");
+
+      const events = employeeAssignments.map((assignment, index) => {
+        const shiftDate = dayInWeek(weekStart, assignment.day_index);
+        const times = SHIFT_TIMES[assignment.shift_type];
+        const title = `${SHIFT_TYPE_LABELS[assignment.shift_type]} - משמרת`;
+        const description = `שיבוץ שבועי עבור ${EMPLOYEE_LABELS[employee]}`;
+
+        return [
+          "BEGIN:VEVENT",
+          `UID:${weekStart}-${employee}-${assignment.day_index}-${assignment.shift_type}-${index}@upriver-analysts`,
+          `DTSTAMP:${nowStamp}`,
+          `DTSTART;TZID=Asia/Jerusalem:${formatIcsDateTime(
+            shiftDate,
+            times.start
+          )}`,
+          `DTEND;TZID=Asia/Jerusalem:${formatIcsDateTime(
+            shiftDate,
+            times.end
+          )}`,
+          `SUMMARY:${escapeIcsText(title)}`,
+          `DESCRIPTION:${escapeIcsText(description)}`,
+          "END:VEVENT",
+        ].join("\r\n");
+      });
+
+      const calendarContent = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//UpRiver Analysts//Weekly Shift Scheduler//HE",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "X-WR-CALNAME:המשמרות שלי",
+        "X-WR-TIMEZONE:Asia/Jerusalem",
+        ...events,
+        "END:VCALENDAR",
+        "",
+      ].join("\r\n");
+
+      const blob = new Blob(["\uFEFF", calendarContent], {
+        type: "text/calendar;charset=utf-8",
+      });
+      const fileName = `my-shifts-${weekStart}.ics`;
+      const file = new File([blob], fileName, {
+        type: "text/calendar;charset=utf-8",
+      });
+
+      const canShareFile =
+        typeof navigator.share === "function" &&
+        typeof navigator.canShare === "function" &&
+        navigator.canShare({ files: [file] });
+
+      if (canShareFile) {
+        await navigator.share({
+          title: "המשמרות שלי",
+          text: "קובץ יומן הכולל את כל המשמרות שלי לשבוע",
+          files: [file],
+        });
+
+        showShareFeedback(
+          "קובץ היומן מוכן. בחר Google Calendar או אפליקציית יומן כדי לייבא את כולן."
+        );
+      } else {
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+
+        link.href = objectUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+
+        showShareFeedback(
+          "קובץ היומן הורד. פתח אותו ובחר Google Calendar כדי לייבא את כל המשמרות."
+        );
+      }
+    } catch (calendarError) {
+      if (
+        calendarError instanceof DOMException &&
+        calendarError.name === "AbortError"
+      ) {
+        return;
+      }
+
+      showShareFeedback("לא ניתן היה ליצור את קובץ היומן. נסה שוב.");
+    } finally {
+      setExportingCalendar(false);
+    }
   }
 
   async function createScheduleImage(
@@ -965,7 +1082,47 @@ export default function EmployeeWeekClient({
               </button>
             </div>
 
-            <div className="max-h-[65vh] space-y-2 overflow-y-auto p-4">
+            <div className="max-h-[65vh] space-y-3 overflow-y-auto p-4">
+              {myAssignments.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => handleExportAllCalendar(myAssignments)}
+                  disabled={exportingCalendar}
+                  className="group flex w-full items-center justify-center gap-3 rounded-2xl bg-violet-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-violet-200/70 transition hover:-translate-y-0.5 hover:bg-violet-700 active:translate-y-0 disabled:cursor-wait disabled:opacity-70"
+                >
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    className="h-5 w-5 transition group-hover:scale-110"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="3" y="5" width="18" height="16" rx="2" />
+                    <path d="M16 3v4M8 3v4M3 10h18" />
+                    <path d="M8 15h8M12 12v6" />
+                  </svg>
+
+                  <span>
+                    {exportingCalendar
+                      ? "מכין קובץ יומן..."
+                      : "ייצוא כל המשמרות ליומן"}
+                  </span>
+                </button>
+              )}
+
+              {myAssignments.length > 0 && (
+                <div className="flex items-center gap-3 py-1">
+                  <div className="h-px flex-1 bg-slate-200" />
+                  <span className="text-[11px] font-medium text-slate-400">
+                    או הוסף משמרת בודדת
+                  </span>
+                  <div className="h-px flex-1 bg-slate-200" />
+                </div>
+              )}
+
               {myAssignments.length === 0 ? (
                 <div className="rounded-2xl bg-slate-50 p-5 text-center text-sm text-slate-500">
                   לא נמצאו משמרות שלך בשבוע הזה.
