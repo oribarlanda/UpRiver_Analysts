@@ -1,10 +1,10 @@
-// Scheduler rules version: balanced-coverage-rest-v3
+// Scheduler rules version: fair-wants-strict-priority-v6
+
 import {
   Employee,
   EMPLOYEES,
   GeneratedAssignment,
   PreferenceValue,
-  PREFERENCE_SCORE,
   ScheduleResult,
   ScheduleWarning,
   ShiftSlot,
@@ -12,31 +12,39 @@ import {
 } from "./types";
 
 /**
- * Exact Dynamic Programming scheduler.
+ * Exact weekly scheduler.
  *
- * Hard rule:
- *   - Never assign a shift to an employee who marked it "cannot".
+ * STRICT PRIORITY ORDER
+ * ---------------------
  *
- * Then optimize the whole week in this strict priority order:
- *   1. Pay-hour balance: first prefer schedules whose highest/lowest totals
- *      differ by no more than 0.5 displayed pay-hours (4 internal units).
- *      If that is impossible, minimize the gap as much as possible.
- *   2. Weekend / premium coverage: each eligible employee should receive at
- *      least one morning or evening on Friday, Saturday, or another day the
- *      admin marked as premium.
- *   3. Avoid giving all three shifts of one day to the same employee.
- *   4. Midweek variety: each eligible employee should receive at least one
- *      morning, one afternoon and one evening during Sunday-Thursday.
- *   5. Avoid an evening followed by a morning on the next day for the same
- *      employee.
- *   6. Minimize assignments against "prefer_not".
- *   7. Maximize the total preference score (want=3, can=1, prefer_not=0).
- *   8. Within otherwise equal schedules, prefer the smaller exact pay gap,
- *      then lower variance, then a deterministic tie-break.
+ * 1. "cannot" is a HARD constraint.
  *
- * Coverage requirements only apply when an employee has at least one
- * acceptable option ("want" or "can") in that category. This prevents the
- * scheduler from manufacturing coverage by using "prefer_not" or "cannot".
+ * 2. Pay balance:
+ *    Prefer schedules where max - min <= 0.5 pay-hours.
+ *    If that is impossible, minimize the gap.
+ *
+ * 3. Weekend / premium coverage:
+ *    Each eligible employee should receive at least one MORNING or EVENING
+ *    on Friday, Saturday, or any additional admin-marked premium day.
+ *
+ * 4. Avoid "prefer_not".
+ *
+ * 5. Fulfil "want" fairly by ABSOLUTE COUNT:
+ *    First maximize the employee with the fewest fulfilled "want" shifts,
+ *    then the second-lowest, then the highest.
+ *
+ *    Example:
+ *      [2, 2, 4] beats [1, 3, 6]
+ *    because everyone gets at least 2 before extra "want" shifts are given
+ *    to one employee.
+ *
+ * 6. Avoid assigning all 3 shifts of one day to the same employee.
+ *
+ * 7. Midweek variety:
+ *    Sunday-Thursday, each eligible employee should receive at least one
+ *    morning, one afternoon and one evening.
+ *
+ * 8. Avoid evening -> next-day morning for the same employee.
  */
 
 type Pref = (
@@ -44,7 +52,9 @@ type Pref = (
   slotIndex: number
 ) => PreferenceValue;
 
-type AssignmentOption = Employee | "unassigned";
+type AssignmentOption =
+  | Employee
+  | "unassigned";
 
 interface DayGroup {
   dayIndex: number;
@@ -53,13 +63,20 @@ interface DayGroup {
 
 interface DayOption {
   assignments: AssignmentOption[];
+
   hilaUnits: number;
   yaaraUnits: number;
+
   weekendMask: number;
   midweekMask: number;
-  tripleCount: number;
+
+  hilaWantCount: number;
+  yaaraWantCount: number;
+  omerWantCount: number;
+
   preferNotCount: number;
-  preferenceScore: number;
+  tripleCount: number;
+
   morningEmployeeCode: number;
   eveningEmployeeCode: number;
 }
@@ -67,37 +84,62 @@ interface DayOption {
 interface ParsedState {
   hilaSum: number;
   yaaraSum: number;
+
   weekendMask: number;
   midweekMask: number;
+
   previousEveningCode: number;
+
+  hilaWantCount: number;
+  yaaraWantCount: number;
+  omerWantCount: number;
 }
 
 interface DPEntry {
+  preferNotCount: number;
   tripleCount: number;
   restViolationCount: number;
-  preferNotCount: number;
-  preferenceScore: number;
+
   prevKey: number | null;
   dayOptionIndex: number | null;
 }
 
-// Each internal unit is 0.125.
-// 4 units = 0.5 displayed pay-hours.
+/**
+ * The project uses internal pay units of 0.125.
+ *
+ * Therefore:
+ * 4 internal units = 0.5 pay-hours.
+ */
 const HALF_HOUR_UNITS = 4;
 
-const EMPLOYEE_BITS: Record<Employee, number> = {
+/**
+ * Maximum number of fulfilled wants for one employee in a 21-shift week
+ * is 21, so base 22 safely packs 0..21.
+ */
+const WANT_BASE = 22;
+
+const EMPLOYEE_BITS: Record<
+  Employee,
+  number
+> = {
   hila: 1,
   yaara: 2,
   omer: 4,
 };
 
-const EMPLOYEE_INDEX: Record<Employee, number> = {
+const EMPLOYEE_INDEX: Record<
+  Employee,
+  number
+> = {
   hila: 0,
   yaara: 1,
   omer: 2,
 };
 
-const EMPLOYEE_CODE: Record<Employee, number> = {
+const EMPLOYEE_CODE: Record<
+  Employee,
+  number
+> = {
   hila: 1,
   yaara: 2,
   omer: 3,
@@ -113,26 +155,52 @@ const MIDWEEK_SHIFT_INDEX: Record<
 };
 
 /**
- * Numeric state packing keeps the DP compact.
+ * Pack all information that can affect future decisions into one number.
  *
- * Current weekly totals stay below 256 internal units, so this
- * representation remains safely inside JavaScript's exact integer range.
+ * Wants are part of the state because fairness depends on HOW MANY
+ * fulfilled wants each specific employee already has.
  */
 function stateKey(
   hilaSum: number,
   yaaraSum: number,
   weekendMask: number,
   midweekMask: number,
-  previousEveningCode: number
+  previousEveningCode: number,
+  hilaWantCount: number,
+  yaaraWantCount: number,
+  omerWantCount: number
 ): number {
-  return (
-    ((((hilaSum * 256 + yaaraSum) * 8 +
-      weekendMask) *
-      512 +
-      midweekMask) *
-      4) +
-    previousEveningCode
-  );
+  let key = hilaSum;
+
+  key =
+    key * 256 +
+    yaaraSum;
+
+  key =
+    key * 8 +
+    weekendMask;
+
+  key =
+    key * 512 +
+    midweekMask;
+
+  key =
+    key * 4 +
+    previousEveningCode;
+
+  key =
+    key * WANT_BASE +
+    hilaWantCount;
+
+  key =
+    key * WANT_BASE +
+    yaaraWantCount;
+
+  key =
+    key * WANT_BASE +
+    omerWantCount;
+
+  return key;
 }
 
 function parseStateKey(
@@ -140,39 +208,95 @@ function parseStateKey(
 ): ParsedState {
   let current = key;
 
-  const previousEveningCode = current % 4;
-  current = Math.floor(current / 4);
+  const omerWantCount =
+    current % WANT_BASE;
 
-  const midweekMask = current % 512;
-  current = Math.floor(current / 512);
+  current =
+    Math.floor(
+      current / WANT_BASE
+    );
 
-  const weekendMask = current % 8;
-  current = Math.floor(current / 8);
+  const yaaraWantCount =
+    current % WANT_BASE;
 
-  const yaaraSum = current % 256;
-  const hilaSum = Math.floor(current / 256);
+  current =
+    Math.floor(
+      current / WANT_BASE
+    );
+
+  const hilaWantCount =
+    current % WANT_BASE;
+
+  current =
+    Math.floor(
+      current / WANT_BASE
+    );
+
+  const previousEveningCode =
+    current % 4;
+
+  current =
+    Math.floor(current / 4);
+
+  const midweekMask =
+    current % 512;
+
+  current =
+    Math.floor(
+      current / 512
+    );
+
+  const weekendMask =
+    current % 8;
+
+  current =
+    Math.floor(current / 8);
+
+  const yaaraSum =
+    current % 256;
+
+  const hilaSum =
+    Math.floor(
+      current / 256
+    );
 
   return {
     hilaSum,
     yaaraSum,
+
     weekendMask,
     midweekMask,
+
     previousEveningCode,
+
+    hilaWantCount,
+    yaaraWantCount,
+    omerWantCount,
   };
 }
 
-function countBits(value: number): number {
+function countBits(
+  value: number
+): number {
   let count = 0;
   let current = value;
 
   while (current > 0) {
-    count += current & 1;
+    count +=
+      current & 1;
+
     current >>= 1;
   }
 
   return count;
 }
 
+/**
+ * Only "want" and "can" count as genuine availability for coverage rules.
+ *
+ * "prefer_not" remains assignable, but is a last resort.
+ * "cannot" is never assignable.
+ */
 function isAcceptable(
   preference: PreferenceValue
 ): boolean {
@@ -183,9 +307,13 @@ function isAcceptable(
 }
 
 /**
- * Friday and Saturday are always weekend for this rule.
- * Any additional admin-marked premium day also participates in
- * the morning/evening coverage requirement.
+ * Weekend/premium requirement:
+ *
+ * - Friday
+ * - Saturday
+ * - Any other premium day chosen by the admin
+ *
+ * Only morning/evening count.
  */
 function isWeekendOrPremiumMorningEvening(
   slot: ShiftSlot
@@ -195,14 +323,19 @@ function isWeekendOrPremiumMorningEvening(
     slot.dayIndex === 6;
 
   return (
-    (isWeekend || slot.isPremium) &&
-    (slot.shiftType === "morning" ||
-      slot.shiftType === "evening")
+    (isWeekend ||
+      slot.isPremium) &&
+    (
+      slot.shiftType ===
+        "morning" ||
+      slot.shiftType ===
+        "evening"
+    )
   );
 }
 
 /**
- * Sunday-Thursday are treated as the regular midweek period.
+ * Sunday through Thursday.
  */
 function isMidweek(
   slot: ShiftSlot
@@ -218,8 +351,13 @@ function midweekCoverageBit(
   shiftType: ShiftType
 ): number {
   const bitIndex =
-    EMPLOYEE_INDEX[employee] * 3 +
-    MIDWEEK_SHIFT_INDEX[shiftType];
+    EMPLOYEE_INDEX[
+      employee
+    ] *
+      3 +
+    MIDWEEK_SHIFT_INDEX[
+      shiftType
+    ];
 
   return 1 << bitIndex;
 }
@@ -227,20 +365,30 @@ function midweekCoverageBit(
 function groupSlotsByDay(
   slots: ShiftSlot[]
 ): DayGroup[] {
-  const groups: DayGroup[] = [];
+  const groups:
+    DayGroup[] = [];
+
   const groupByDay =
-    new Map<number, DayGroup>();
+    new Map<
+      number,
+      DayGroup
+    >();
 
   for (
     let slotIndex = 0;
-    slotIndex < slots.length;
+    slotIndex <
+    slots.length;
     slotIndex++
   ) {
     const dayIndex =
-      slots[slotIndex].dayIndex;
+      slots[
+        slotIndex
+      ].dayIndex;
 
     let group =
-      groupByDay.get(dayIndex);
+      groupByDay.get(
+        dayIndex
+      );
 
     if (!group) {
       group = {
@@ -253,7 +401,9 @@ function groupSlotsByDay(
         group
       );
 
-      groups.push(group);
+      groups.push(
+        group
+      );
     }
 
     group.slotIndices.push(
@@ -265,22 +415,94 @@ function groupSlotsByDay(
 }
 
 /**
- * Enumerates all legal assignment combinations for one day.
+ * Fair-want tuple.
  *
- * A triple-shift day is not thrown away completely because there are
- * edge cases in which availability makes it unavoidable. Instead it gets
- * a penalty and the final optimizer avoids it whenever a better schedule
- * exists according to the requested priority order.
+ * Counts are sorted from LOWEST to HIGHEST.
+ *
+ * We compare:
+ *   minimum fulfilled wants first,
+ *   then middle,
+ *   then maximum.
+ *
+ * This creates max-min fairness using absolute numbers.
+ */
+function wantFairnessTuple(
+  hila: number,
+  yaara: number,
+  omer: number
+): [
+  number,
+  number,
+  number
+] {
+  const values = [
+    hila,
+    yaara,
+    omer,
+  ].sort(
+    (a, b) => a - b
+  );
+
+  return [
+    values[0],
+    values[1],
+    values[2],
+  ];
+}
+
+/**
+ * Returns:
+ *
+ * > 0 if candidate is fairer
+ * < 0 if existing is fairer
+ * = 0 if same fairness
+ */
+function compareWantFairness(
+  candidate: [
+    number,
+    number,
+    number
+  ],
+  existing: [
+    number,
+    number,
+    number
+  ]
+): number {
+  for (
+    let index = 0;
+    index < 3;
+    index++
+  ) {
+    if (
+      candidate[index] !==
+      existing[index]
+    ) {
+      return (
+        candidate[index] -
+        existing[index]
+      );
+    }
+  }
+
+  return 0;
+}
+
+/**
+ * Generate every legal assignment combination for one day.
  */
 function buildDayOptions(
   day: DayGroup,
   slots: ShiftSlot[],
   pref: Pref,
-  feasibleBySlot: AssignmentOption[][]
+  feasibleBySlot:
+    AssignmentOption[][]
 ): DayOption[] {
-  const results: DayOption[] = [];
+  const results:
+    DayOption[] = [];
 
-  const selected: AssignmentOption[] =
+  const selected:
+    AssignmentOption[] =
     new Array(
       day.slotIndices.length
     );
@@ -293,15 +515,23 @@ function buildDayOptions(
       day.slotIndices.length
     ) {
       const slotIndex =
-        day.slotIndices[position];
+        day.slotIndices[
+          position
+        ];
 
       for (
-        const option of feasibleBySlot[
+        const option of
+        feasibleBySlot[
           slotIndex
         ]
       ) {
-        selected[position] = option;
-        visit(position + 1);
+        selected[
+          position
+        ] = option;
+
+        visit(
+          position + 1
+        );
       }
 
       return;
@@ -318,62 +548,101 @@ function buildDayOptions(
 
     let hilaUnits = 0;
     let yaaraUnits = 0;
+
     let weekendMask = 0;
     let midweekMask = 0;
+
+    let hilaWantCount = 0;
+    let yaaraWantCount = 0;
+    let omerWantCount = 0;
+
     let preferNotCount = 0;
-    let preferenceScore = 0;
-    let morningEmployeeCode = 0;
-    let eveningEmployeeCode = 0;
+
+    let morningEmployeeCode =
+      0;
+
+    let eveningEmployeeCode =
+      0;
 
     for (
-      let selectedPosition = 0;
-      selectedPosition <
+      let positionIndex = 0;
+      positionIndex <
       selected.length;
-      selectedPosition++
+      positionIndex++
     ) {
       const option =
-        selected[selectedPosition];
+        selected[
+          positionIndex
+        ];
 
       const slotIndex =
         day.slotIndices[
-          selectedPosition
+          positionIndex
         ];
 
       const slot =
-        slots[slotIndex];
+        slots[
+          slotIndex
+        ];
 
       if (
-        option === "unassigned"
+        option ===
+        "unassigned"
       ) {
         continue;
       }
 
-      counts[option] += 1;
+      counts[
+        option
+      ] += 1;
 
       const preference =
-        pref(option, slotIndex);
+        pref(
+          option,
+          slotIndex
+        );
 
-      if (option === "hila") {
-        hilaUnits += slot.unit;
-      } else if (
-        option === "yaara"
+      if (
+        option === "hila"
       ) {
-        yaaraUnits += slot.unit;
+        hilaUnits +=
+          slot.unit;
       }
 
+      if (
+        option === "yaara"
+      ) {
+        yaaraUnits +=
+          slot.unit;
+      }
+
+      /**
+       * Weekend / premium coverage only counts genuine acceptable shifts.
+       */
       if (
         isWeekendOrPremiumMorningEvening(
           slot
         ) &&
-        isAcceptable(preference)
+        isAcceptable(
+          preference
+        )
       ) {
         weekendMask |=
-          EMPLOYEE_BITS[option];
+          EMPLOYEE_BITS[
+            option
+          ];
       }
 
+      /**
+       * Midweek type coverage also only counts can/want.
+       */
       if (
-        isMidweek(slot) &&
-        isAcceptable(preference)
+        isMidweek(
+          slot
+        ) &&
+        isAcceptable(
+          preference
+        )
       ) {
         midweekMask |=
           midweekCoverageBit(
@@ -382,18 +651,24 @@ function buildDayOptions(
           );
       }
 
+      /**
+       * Fulfilled "want".
+       */
       if (
-        slot.shiftType ===
-        "morning"
+        preference ===
+        "want"
       ) {
-        morningEmployeeCode =
-          EMPLOYEE_CODE[option];
-      } else if (
-        slot.shiftType ===
-        "evening"
-      ) {
-        eveningEmployeeCode =
-          EMPLOYEE_CODE[option];
+        if (
+          option === "hila"
+        ) {
+          hilaWantCount += 1;
+        } else if (
+          option === "yaara"
+        ) {
+          yaaraWantCount += 1;
+        } else {
+          omerWantCount += 1;
+        }
       }
 
       if (
@@ -403,31 +678,60 @@ function buildDayOptions(
         preferNotCount += 1;
       }
 
-      preferenceScore +=
-        PREFERENCE_SCORE[
-          preference
-        ];
+      if (
+        slot.shiftType ===
+        "morning"
+      ) {
+        morningEmployeeCode =
+          EMPLOYEE_CODE[
+            option
+          ];
+      }
+
+      if (
+        slot.shiftType ===
+        "evening"
+      ) {
+        eveningEmployeeCode =
+          EMPLOYEE_CODE[
+            option
+          ];
+      }
     }
 
+    /**
+     * A triple shift stays possible because "want" is ABOVE this rule
+     * in the requested priority list.
+     */
     const tripleCount =
+      day.slotIndices.length ===
+        3 &&
       EMPLOYEES.some(
         (employee) =>
-          day.slotIndices.length ===
-            3 &&
-          counts[employee] === 3
+          counts[
+            employee
+          ] === 3
       )
         ? 1
         : 0;
 
     results.push({
-      assignments: [...selected],
+      assignments:
+        [...selected],
+
       hilaUnits,
       yaaraUnits,
+
       weekendMask,
       midweekMask,
-      tripleCount,
+
+      hilaWantCount,
+      yaaraWantCount,
+      omerWantCount,
+
       preferNotCount,
-      preferenceScore,
+      tripleCount,
+
       morningEmployeeCode,
       eveningEmployeeCode,
     });
@@ -439,46 +743,59 @@ function buildDayOptions(
 }
 
 /**
- * If two paths reach the exact same state, all future possibilities are
- * identical. We therefore only need to retain the better accumulated path.
+ * Two paths reaching the SAME state already have:
+ *
+ * - identical pay
+ * - identical weekend coverage
+ * - identical midweek coverage
+ * - identical fulfilled wants per employee
+ * - identical previous evening employee
+ *
+ * Therefore only accumulated penalties still matter.
+ *
+ * Requested remaining order:
+ *
+ * prefer_not
+ * -> triple shifts
+ * -> evening/morning
  */
 function isBetterPath(
   candidate: DPEntry,
   existing: DPEntry
 ): boolean {
   if (
-    candidate.tripleCount !==
-    existing.tripleCount
+    candidate
+      .preferNotCount !==
+    existing
+      .preferNotCount
   ) {
     return (
-      candidate.tripleCount <
-      existing.tripleCount
+      candidate
+        .preferNotCount <
+      existing
+        .preferNotCount
     );
   }
 
   if (
-    candidate.restViolationCount !==
-    existing.restViolationCount
+    candidate
+      .tripleCount !==
+    existing
+      .tripleCount
   ) {
     return (
-      candidate.restViolationCount <
-      existing.restViolationCount
-    );
-  }
-
-  if (
-    candidate.preferNotCount !==
-    existing.preferNotCount
-  ) {
-    return (
-      candidate.preferNotCount <
-      existing.preferNotCount
+      candidate
+        .tripleCount <
+      existing
+        .tripleCount
     );
   }
 
   return (
-    candidate.preferenceScore >
-    existing.preferenceScore
+    candidate
+      .restViolationCount <
+    existing
+      .restViolationCount
   );
 }
 
@@ -496,27 +813,38 @@ export function generateAssignments(
   ) =>
     preferenceLookup(
       employee,
-      slots[slotIndex].dayIndex,
-      slots[slotIndex].shiftType
+      slots[
+        slotIndex
+      ].dayIndex,
+      slots[
+        slotIndex
+      ].shiftType
     );
 
   const feasibleBySlot:
     AssignmentOption[][] = [];
 
   let totalAssignedUnits = 0;
+
   let eligibleWeekendMask = 0;
+
   let eligibleMidweekMask = 0;
 
   /**
-   * Build availability and eligibility maps.
+   * HARD RULE:
+   *
+   * Employees who marked "cannot" are removed from that shift entirely.
    */
   for (
     let slotIndex = 0;
-    slotIndex < slots.length;
+    slotIndex <
+    slots.length;
     slotIndex++
   ) {
     const slot =
-      slots[slotIndex];
+      slots[
+        slotIndex
+      ];
 
     const feasibleEmployees =
       EMPLOYEES.filter(
@@ -527,22 +855,30 @@ export function generateAssignments(
           ) !== "cannot"
       );
 
-    const isBlocked =
-      feasibleEmployees.length === 0;
+    const blocked =
+      feasibleEmployees.length ===
+      0;
 
     feasibleBySlot.push(
-      isBlocked
+      blocked
         ? ["unassigned"]
         : feasibleEmployees
     );
 
-    if (!isBlocked) {
+    if (!blocked) {
       totalAssignedUnits +=
         slot.unit;
     }
 
+    /**
+     * Determine who is eligible for weekend and midweek coverage.
+     *
+     * If an employee marked every relevant shift prefer_not/cannot,
+     * she is exempt from that requirement.
+     */
     for (
-      const employee of EMPLOYEES
+      const employee of
+      EMPLOYEES
     ) {
       const preference =
         pref(
@@ -569,7 +905,11 @@ export function generateAssignments(
           ];
       }
 
-      if (isMidweek(slot)) {
+      if (
+        isMidweek(
+          slot
+        )
+      ) {
         eligibleMidweekMask |=
           midweekCoverageBit(
             employee,
@@ -580,16 +920,19 @@ export function generateAssignments(
   }
 
   const dayGroups =
-    groupSlotsByDay(slots);
+    groupSlotsByDay(
+      slots
+    );
 
   const dayOptions =
-    dayGroups.map((day) =>
-      buildDayOptions(
-        day,
-        slots,
-        pref,
-        feasibleBySlot
-      )
+    dayGroups.map(
+      (day) =>
+        buildDayOptions(
+          day,
+          slots,
+          pref,
+          feasibleBySlot
+        )
     );
 
   for (
@@ -610,19 +953,18 @@ export function generateAssignments(
   }
 
   /**
-   * State contains:
-   * - Hila total
-   * - Yaara total
-   * - weekend/premium coverage mask
-   * - midweek shift-type coverage mask
-   * - who worked the previous evening
-   *
-   * Omer's total is derived from the week's total.
+   * Initial DP state.
    */
   let dp =
-    new Map<number, DPEntry>([
+    new Map<
+      number,
+      DPEntry
+    >([
       [
         stateKey(
+          0,
+          0,
+          0,
           0,
           0,
           0,
@@ -630,21 +972,26 @@ export function generateAssignments(
           0
         ),
         {
-          tripleCount: 0,
-          restViolationCount: 0,
           preferNotCount: 0,
-          preferenceScore: 0,
+          tripleCount: 0,
+          restViolationCount:
+            0,
+
           prevKey: null,
           dayOptionIndex: null,
         },
       ],
     ]);
 
-  const dpByDay: Map<
-    number,
-    DPEntry
-  >[] = [dp];
+  const dpByDay:
+    Map<
+      number,
+      DPEntry
+    >[] = [dp];
 
+  /**
+   * Exact DP, one day at a time.
+   */
   for (
     let dayPosition = 0;
     dayPosition <
@@ -661,14 +1008,18 @@ export function generateAssignments(
       Array.from(
         dp.keys()
       ).sort(
-        (a, b) => a - b
+        (a, b) =>
+          a - b
       );
 
     for (
-      const key of sortedKeys
+      const key of
+      sortedKeys
     ) {
-      const currentState =
-        parseStateKey(key);
+      const state =
+        parseStateKey(
+          key
+        );
 
       const currentEntry =
         dp.get(key)!;
@@ -684,56 +1035,85 @@ export function generateAssignments(
         const option =
           dayOptions[
             dayPosition
-          ][optionIndex];
+          ][
+            optionIndex
+          ];
 
+        /**
+         * Evening -> next morning.
+         *
+         * This is the LAST requested structural priority.
+         */
         const restViolation =
-          currentState.previousEveningCode !==
+          state
+            .previousEveningCode !==
             0 &&
-          option.morningEmployeeCode !==
+          option
+            .morningEmployeeCode !==
             0 &&
-          currentState.previousEveningCode ===
-            option.morningEmployeeCode
+          state
+            .previousEveningCode ===
+            option
+              .morningEmployeeCode
             ? 1
             : 0;
 
         const nextKey =
           stateKey(
-            currentState.hilaSum +
+            state.hilaSum +
               option.hilaUnits,
-            currentState.yaaraSum +
+
+            state.yaaraSum +
               option.yaaraUnits,
-            currentState.weekendMask |
+
+            state.weekendMask |
               option.weekendMask,
-            currentState.midweekMask |
+
+            state.midweekMask |
               option.midweekMask,
-            option.eveningEmployeeCode
+
+            option
+              .eveningEmployeeCode,
+
+            state.hilaWantCount +
+              option.hilaWantCount,
+
+            state.yaaraWantCount +
+              option.yaaraWantCount,
+
+            state.omerWantCount +
+              option.omerWantCount
           );
 
-        const candidate: DPEntry =
-          {
-            tripleCount:
-              currentEntry.tripleCount +
-              option.tripleCount,
+        const candidate:
+          DPEntry = {
+          preferNotCount:
+            currentEntry
+              .preferNotCount +
+            option
+              .preferNotCount,
 
-            restViolationCount:
-              currentEntry.restViolationCount +
-              restViolation,
+          tripleCount:
+            currentEntry
+              .tripleCount +
+            option
+              .tripleCount,
 
-            preferNotCount:
-              currentEntry.preferNotCount +
-              option.preferNotCount,
+          restViolationCount:
+            currentEntry
+              .restViolationCount +
+            restViolation,
 
-            preferenceScore:
-              currentEntry.preferenceScore +
-              option.preferenceScore,
+          prevKey: key,
 
-            prevKey: key,
-            dayOptionIndex:
-              optionIndex,
-          };
+          dayOptionIndex:
+            optionIndex,
+        };
 
         const existing =
-          nextDp.get(nextKey);
+          nextDp.get(
+            nextKey
+          );
 
         if (
           !existing ||
@@ -751,9 +1131,15 @@ export function generateAssignments(
     }
 
     dp = nextDp;
-    dpByDay.push(dp);
+
+    dpByDay.push(
+      dp
+    );
   }
 
+  /**
+   * Omer's pay sum is derived from the week's total.
+   */
   function omerSumOf(
     hilaSum: number,
     yaaraSum: number
@@ -800,7 +1186,8 @@ export function generateAssignments(
       );
 
     const mean =
-      totalAssignedUnits / 3;
+      totalAssignedUnits /
+      3;
 
     return (
       (hilaSum - mean) ** 2 +
@@ -838,10 +1225,17 @@ export function generateAssignments(
   let bestWithinHalfHour =
     false;
 
-  let bestGap = Infinity;
+  let bestGap =
+    Infinity;
 
   let bestWeekendCoverage =
     -1;
+
+  let bestWantTuple: [
+    number,
+    number,
+    number
+  ] = [-1, -1, -1];
 
   let bestMidweekCoverage =
     -1;
@@ -850,20 +1244,41 @@ export function generateAssignments(
     Infinity;
 
   /**
-   * Exact requested priority order.
+   * FINAL PRIORITY ORDER
+   *
+   * 1 cannot
+   *   -> already enforced as a hard rule.
+   *
+   * 2 pay balance
+   *
+   * 3 weekend/premium coverage
+   *
+   * 4 avoid prefer_not
+   *
+   * 5 fair absolute want fulfilment
+   *
+   * 6 avoid triple shifts
+   *
+   * 7 midweek type coverage
+   *
+   * 8 avoid evening -> morning
    */
   for (
-    const key of Array.from(
+    const key of
+    Array.from(
       dp.keys()
     ).sort(
-      (a, b) => a - b
+      (a, b) =>
+        a - b
     )
   ) {
     const entry =
       dp.get(key)!;
 
     const state =
-      parseStateKey(key);
+      parseStateKey(
+        key
+      );
 
     const gap =
       gapOf(
@@ -880,6 +1295,13 @@ export function generateAssignments(
         state.weekendMask
       );
 
+    const wantTuple =
+      wantFairnessTuple(
+        state.hilaWantCount,
+        state.yaaraWantCount,
+        state.omerWantCount
+      );
+
     const midweekCoverage =
       midweekCoverageOf(
         state.midweekMask
@@ -891,102 +1313,167 @@ export function generateAssignments(
         state.yaaraSum
       );
 
-    let isBetter = false;
+    let better = false;
 
     if (
       bestEntry === null
     ) {
-      isBetter = true;
-    } else if (
+      better = true;
+    }
+
+    /**
+     * PRIORITY 2:
+     * First reach the <= 0.5 pay-gap target.
+     */
+    else if (
       withinHalfHour !==
       bestWithinHalfHour
     ) {
-      /**
-       * A schedule inside the 0.5 target always beats one outside it.
-       */
-      isBetter =
+      better =
         withinHalfHour;
-    } else if (
+    }
+
+    /**
+     * If <= 0.5 is impossible,
+     * minimize exact gap before everything below it.
+     */
+    else if (
       !withinHalfHour &&
       gap !== bestGap
     ) {
-      /**
-       * If the 0.5 target cannot be reached, minimize the gap before
-       * considering any lower-priority rule.
-       */
-      isBetter =
+      better =
         gap < bestGap;
-    } else if (
+    }
+
+    /**
+     * PRIORITY 3:
+     * Weekend/premium morning-evening coverage.
+     */
+    else if (
       weekendCoverage !==
       bestWeekendCoverage
     ) {
-      isBetter =
+      better =
         weekendCoverage >
         bestWeekendCoverage;
-    } else if (
-      entry.tripleCount !==
-      bestEntry.tripleCount
-    ) {
-      isBetter =
-        entry.tripleCount <
-        bestEntry.tripleCount;
-    } else if (
-      midweekCoverage !==
-      bestMidweekCoverage
-    ) {
-      isBetter =
-        midweekCoverage >
-        bestMidweekCoverage;
-    } else if (
-      entry.restViolationCount !==
-      bestEntry.restViolationCount
-    ) {
-      isBetter =
-        entry.restViolationCount <
-        bestEntry.restViolationCount;
-    } else if (
+    }
+
+    /**
+     * PRIORITY 4:
+     * Avoid "prefer_not".
+     */
+    else if (
       entry.preferNotCount !==
       bestEntry.preferNotCount
     ) {
-      isBetter =
+      better =
         entry.preferNotCount <
         bestEntry.preferNotCount;
-    } else if (
-      entry.preferenceScore !==
-      bestEntry.preferenceScore
-    ) {
-      isBetter =
-        entry.preferenceScore >
-        bestEntry.preferenceScore;
-    } else if (
-      gap !== bestGap
-    ) {
-      /**
-       * Both schedules already satisfy the <= 0.5 rule.
-       * At this point, prefer the one that is even closer to exact equality.
-       */
-      isBetter =
-        gap < bestGap;
-    } else if (
-      variance !==
-      bestVariance
-    ) {
-      isBetter =
-        variance <
-        bestVariance;
     }
 
-    if (isBetter) {
-      bestKey = key;
-      bestEntry = entry;
+    /**
+     * PRIORITY 5:
+     * "want" fulfilment using absolute max-min fairness.
+     */
+    else {
+      const wantComparison =
+        compareWantFairness(
+          wantTuple,
+          bestWantTuple
+        );
+
+      if (
+        wantComparison !== 0
+      ) {
+        better =
+          wantComparison > 0;
+      }
+
+      /**
+       * PRIORITY 6:
+       * Avoid 3 shifts in one day.
+       */
+      else if (
+        entry.tripleCount !==
+        bestEntry.tripleCount
+      ) {
+        better =
+          entry.tripleCount <
+          bestEntry.tripleCount;
+      }
+
+      /**
+       * PRIORITY 7:
+       * Midweek morning/afternoon/evening coverage.
+       */
+      else if (
+        midweekCoverage !==
+        bestMidweekCoverage
+      ) {
+        better =
+          midweekCoverage >
+          bestMidweekCoverage;
+      }
+
+      /**
+       * PRIORITY 8:
+       * Avoid evening followed by next morning.
+       */
+      else if (
+        entry
+          .restViolationCount !==
+        bestEntry
+          .restViolationCount
+      ) {
+        better =
+          entry
+            .restViolationCount <
+          bestEntry
+            .restViolationCount;
+      }
+
+      /**
+       * If all requested priorities are identical and both schedules
+       * already satisfy <= 0.5, prefer the even smaller exact gap.
+       */
+      else if (
+        gap !== bestGap
+      ) {
+        better =
+          gap < bestGap;
+      }
+
+      /**
+       * Final deterministic fairness tie-break.
+       */
+      else if (
+        variance !==
+        bestVariance
+      ) {
+        better =
+          variance <
+          bestVariance;
+      }
+    }
+
+    if (better) {
+      bestKey =
+        key;
+
+      bestEntry =
+        entry;
 
       bestWithinHalfHour =
         withinHalfHour;
 
-      bestGap = gap;
+      bestGap =
+        gap;
 
       bestWeekendCoverage =
         weekendCoverage;
+
+      bestWantTuple =
+        wantTuple;
 
       bestMidweekCoverage =
         midweekCoverage;
@@ -996,18 +1483,22 @@ export function generateAssignments(
     }
   }
 
-  if (bestKey === null) {
+  if (
+    bestKey === null
+  ) {
     throw new Error(
       "Scheduler could not find a valid assignment path."
     );
   }
 
   /**
-   * Reconstruct selected assignments.
+   * Reconstruct chosen assignments.
    */
   const assignmentOptions:
     AssignmentOption[] =
-    new Array(slots.length);
+    new Array(
+      slots.length
+    );
 
   let currentKey =
     bestKey;
@@ -1021,11 +1512,14 @@ export function generateAssignments(
     const entry =
       dpByDay[
         step
-      ].get(currentKey);
+      ].get(
+        currentKey
+      );
 
     if (
       !entry ||
-      entry.prevKey === null ||
+      entry.prevKey ===
+        null ||
       entry.dayOptionIndex ===
         null
     ) {
@@ -1035,13 +1529,16 @@ export function generateAssignments(
     }
 
     const day =
-      dayGroups[step - 1];
+      dayGroups[
+        step - 1
+      ];
 
     const option =
       dayOptions[
         step - 1
       ][
-        entry.dayOptionIndex
+        entry
+          .dayOptionIndex
       ];
 
     for (
@@ -1070,7 +1567,8 @@ export function generateAssignments(
 
   const blockedSlots: {
     dayIndex: number;
-    shiftType: ShiftSlot["shiftType"];
+    shiftType:
+      ShiftSlot["shiftType"];
   }[] = [];
 
   const sums: Record<
@@ -1083,7 +1581,8 @@ export function generateAssignments(
   };
 
   const warnings:
-    ScheduleWarning[] = [];
+    ScheduleWarning[] =
+    [];
 
   for (
     let slotIndex = 0;
@@ -1097,7 +1596,9 @@ export function generateAssignments(
       ];
 
     const slot =
-      slots[slotIndex];
+      slots[
+        slotIndex
+      ];
 
     if (
       option ===
@@ -1106,6 +1607,7 @@ export function generateAssignments(
       blockedSlots.push({
         dayIndex:
           slot.dayIndex,
+
         shiftType:
           slot.shiftType,
       });
@@ -1113,23 +1615,29 @@ export function generateAssignments(
       assignments.push({
         dayIndex:
           slot.dayIndex,
+
         shiftType:
           slot.shiftType,
+
         employee: null,
       });
 
       continue;
     }
 
-    sums[option] +=
-      slot.unit;
+    sums[
+      option
+    ] += slot.unit;
 
     assignments.push({
       dayIndex:
         slot.dayIndex,
+
       shiftType:
         slot.shiftType,
-      employee: option,
+
+      employee:
+        option,
     });
 
     const preference =
@@ -1147,10 +1655,13 @@ export function generateAssignments(
       warnings.push({
         dayIndex:
           slot.dayIndex,
+
         shiftType:
           slot.shiftType,
+
         employee:
           option,
+
         preference,
       });
     }
@@ -1177,8 +1688,10 @@ export function generateAssignments(
 
   const gapPercent =
     maxSum > 0
-      ? (gapUnits /
-          maxSum) *
+      ? (
+          gapUnits /
+          maxSum
+        ) *
         100
       : 0;
 
@@ -1193,24 +1706,29 @@ export function generateAssignments(
 }
 
 /**
- * Recomputes pay sums and preference-violation warnings for an arbitrary
- * manually edited assignment list.
- *
- * Used by the admin screen for live recalculation after manual changes.
+ * Recalculate statistics after manual admin editing.
  */
 export function recomputeFromAssignments(
   slots: ShiftSlot[],
-  assignments: GeneratedAssignment[],
+  assignments:
+    GeneratedAssignment[],
   preferenceLookup: (
     employee: Employee,
     dayIndex: number,
     shiftType: string
   ) => PreferenceValue
 ): {
-  sums: Record<Employee, number>;
+  sums: Record<
+    Employee,
+    number
+  >;
+
   gapUnits: number;
+
   gapPercent: number;
-  warnings: ScheduleWarning[];
+
+  warnings:
+    ScheduleWarning[];
 } {
   const sums: Record<
     Employee,
@@ -1222,7 +1740,8 @@ export function recomputeFromAssignments(
   };
 
   const warnings:
-    ScheduleWarning[] = [];
+    ScheduleWarning[] =
+    [];
 
   const slotMap =
     new Map<
@@ -1231,7 +1750,8 @@ export function recomputeFromAssignments(
     >();
 
   for (
-    const slot of slots
+    const slot of
+    slots
   ) {
     slotMap.set(
       `${slot.dayIndex}-${slot.shiftType}`,
@@ -1240,7 +1760,8 @@ export function recomputeFromAssignments(
   }
 
   for (
-    const assignment of assignments
+    const assignment of
+    assignments
   ) {
     if (
       !assignment.employee
@@ -1253,7 +1774,9 @@ export function recomputeFromAssignments(
         `${assignment.dayIndex}-${assignment.shiftType}`
       );
 
-    if (!slot) continue;
+    if (!slot) {
+      continue;
+    }
 
     sums[
       assignment.employee
@@ -1275,10 +1798,13 @@ export function recomputeFromAssignments(
       warnings.push({
         dayIndex:
           assignment.dayIndex,
+
         shiftType:
           assignment.shiftType,
+
         employee:
           assignment.employee,
+
         preference,
       });
     }
@@ -1305,8 +1831,10 @@ export function recomputeFromAssignments(
 
   const gapPercent =
     maxSum > 0
-      ? (gapUnits /
-          maxSum) *
+      ? (
+          gapUnits /
+          maxSum
+        ) *
         100
       : 0;
 
