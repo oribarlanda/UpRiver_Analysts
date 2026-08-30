@@ -22,6 +22,18 @@ interface AssignmentLike {
   shift_type: ShiftType;
 }
 
+function preferenceKey(
+  employee: Employee,
+  dayIndex: number,
+  shiftType: ShiftType
+): string {
+  return JSON.stringify([employee, dayIndex, shiftType]);
+}
+
+function assignmentKey(dayIndex: number, shiftType: ShiftType): string {
+  return JSON.stringify([dayIndex, shiftType]);
+}
+
 /**
  * Returns every (employee, day, shift) combination that does NOT have a
  * saved preference row yet. An empty array means all three employees have
@@ -31,13 +43,24 @@ interface AssignmentLike {
  * always surfaced explicitly as "missing" so callers (API routes, UI) can
  * block actions or display a clear "טרם סומן" / "לא מולא" state.
  */
-export function findMissingPreferences(preferences: PreferenceLike[]): MissingPreference[] {
-  const present = new Set(preferences.map((p) => `${p.employee}-${p.day_index}-${p.shift_type}`));
+export function findMissingPreferences(
+  preferences: PreferenceLike[],
+  shiftTypes: readonly ShiftType[] = SHIFT_TYPES
+): MissingPreference[] {
+  const present = new Set(
+    preferences.map((preference) =>
+      preferenceKey(
+        preference.employee,
+        preference.day_index,
+        preference.shift_type
+      )
+    )
+  );
   const missing: MissingPreference[] = [];
   for (const employee of EMPLOYEES) {
     for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-      for (const shiftType of SHIFT_TYPES) {
-        const key = `${employee}-${dayIndex}-${shiftType}`;
+      for (const shiftType of shiftTypes) {
+        const key = preferenceKey(employee, dayIndex, shiftType);
         if (!present.has(key)) {
           missing.push({ employee, dayIndex, shiftType });
         }
@@ -67,12 +90,19 @@ export function groupMissingPreferencesByEmployee(
  * An empty array means all 21 shifts of the week are covered by exactly
  * one assignment each.
  */
-export function findMissingAssignments(assignments: AssignmentLike[]): MissingAssignment[] {
-  const present = new Set(assignments.map((a) => `${a.day_index}-${a.shift_type}`));
+export function findMissingAssignments(
+  assignments: AssignmentLike[],
+  shiftTypes: readonly ShiftType[] = SHIFT_TYPES
+): MissingAssignment[] {
+  const present = new Set(
+    assignments.map((assignment) =>
+      assignmentKey(assignment.day_index, assignment.shift_type)
+    )
+  );
   const missing: MissingAssignment[] = [];
   for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-    for (const shiftType of SHIFT_TYPES) {
-      const key = `${dayIndex}-${shiftType}`;
+    for (const shiftType of shiftTypes) {
+      const key = assignmentKey(dayIndex, shiftType);
       if (!present.has(key)) {
         missing.push({ dayIndex, shiftType });
       }
@@ -81,5 +111,17 @@ export function findMissingAssignments(assignments: AssignmentLike[]): MissingAs
   return missing;
 }
 
-export const TOTAL_PREFERENCES_REQUIRED = EMPLOYEES.length * 7 * SHIFT_TYPES.length; // 63
-export const TOTAL_ASSIGNMENTS_REQUIRED = 7 * SHIFT_TYPES.length; // 21
+export function getTotalPreferencesRequired(
+  shiftTypes: readonly ShiftType[] = SHIFT_TYPES
+): number {
+  return EMPLOYEES.length * 7 * shiftTypes.length;
+}
+
+export function getTotalAssignmentsRequired(
+  shiftTypes: readonly ShiftType[] = SHIFT_TYPES
+): number {
+  return 7 * shiftTypes.length;
+}
+
+export const TOTAL_PREFERENCES_REQUIRED = getTotalPreferencesRequired();
+export const TOTAL_ASSIGNMENTS_REQUIRED = getTotalAssignmentsRequired();

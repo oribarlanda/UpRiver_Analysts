@@ -3,12 +3,45 @@ import { generateAssignments } from "../lib/scheduler";
 import { buildWeekSlots } from "../lib/weekSlots";
 import { shiftUnit } from "../lib/payUnits";
 import {
+  DEFAULT_SHIFT_DEFINITIONS,
   Employee,
   PreferenceValue,
   SHIFT_TYPES,
+  ShiftDefinition,
 } from "../lib/types";
 
 type PrefMap = Record<string, PreferenceValue>;
+
+const FOUR_SHIFT_DEFINITIONS: ShiftDefinition[] = [
+  {
+    id: "early",
+    name: "מוקדמת",
+    payValue: 0.75,
+    startTime: "06:00",
+    durationMinutes: 60,
+  },
+  {
+    id: "day",
+    name: "יום",
+    payValue: 1,
+    startTime: "10:00",
+    durationMinutes: 90,
+  },
+  {
+    id: "late",
+    name: "מאוחרת",
+    payValue: 0.5,
+    startTime: "16:00",
+    durationMinutes: 30,
+  },
+  {
+    id: "night",
+    name: "לילה",
+    payValue: 1.25,
+    startTime: "22:00",
+    durationMinutes: 120,
+  },
+];
 
 function makeLookup(map: PrefMap) {
   return (
@@ -52,6 +85,32 @@ function premiumMorningEveningCounts(
 }
 
 describe("shiftUnit / pay units", () => {
+  it("keeps the exact legacy default definitions", () => {
+    expect(DEFAULT_SHIFT_DEFINITIONS).toEqual([
+      {
+        id: "morning",
+        name: "בוקר",
+        payValue: 1.25,
+        startTime: "08:00",
+        durationMinutes: 60,
+      },
+      {
+        id: "afternoon",
+        name: "צהריים",
+        payValue: 0.5,
+        startTime: "14:00",
+        durationMinutes: 30,
+      },
+      {
+        id: "evening",
+        name: "ערב",
+        payValue: 1.25,
+        startTime: "21:00",
+        durationMinutes: 60,
+      },
+    ]);
+  });
+
   it("computes regular unit values correctly", () => {
     expect(shiftUnit("morning", false)).toBe(10);
     expect(shiftUnit("evening", false)).toBe(10);
@@ -62,6 +121,20 @@ describe("shiftUnit / pay units", () => {
     expect(shiftUnit("morning", true)).toBe(15);
     expect(shiftUnit("evening", true)).toBe(15);
     expect(shiftUnit("afternoon", true)).toBe(6);
+  });
+
+  it("builds an ordered four-shift week from custom definitions", () => {
+    const slots = buildWeekSlots([5], FOUR_SHIFT_DEFINITIONS);
+
+    expect(slots).toHaveLength(28);
+    expect(slots.slice(0, 4).map((slot) => slot.shiftType)).toEqual([
+      "early",
+      "day",
+      "late",
+      "night",
+    ]);
+    expect(slots.slice(0, 4).map((slot) => slot.unit)).toEqual([6, 8, 4, 10]);
+    expect(slots.slice(20, 24).map((slot) => slot.unit)).toEqual([9, 12, 6, 15]);
   });
 });
 
@@ -260,5 +333,36 @@ describe("generateAssignments", () => {
     );
 
     expect(total).toBeLessThanOrEqual(expectedTotal);
+  });
+
+  it("schedules a four-shift configuration without relying on legacy ids", () => {
+    const slots = buildWeekSlots([5, 6], FOUR_SHIFT_DEFINITIONS);
+    const prefs: PrefMap = {};
+
+    for (const slot of slots) {
+      const shiftIndex = FOUR_SHIFT_DEFINITIONS.findIndex(
+        (definition) => definition.id === slot.shiftType
+      );
+      const allowedEmployee = ["hila", "yaara", "omer"] as const;
+      const allowed = allowedEmployee[(slot.dayIndex + shiftIndex) % allowedEmployee.length];
+
+      for (const employee of allowedEmployee) {
+        if (employee !== allowed) {
+          prefs[`${employee}-${slot.dayIndex}-${slot.shiftType}`] = "cannot";
+        }
+      }
+    }
+
+    const result = generateAssignments(slots, makeLookup(prefs));
+    const totalAssigned = Object.values(result.sums).reduce(
+      (sum, value) => sum + value,
+      0
+    );
+    const totalAvailable = slots.reduce((sum, slot) => sum + slot.unit, 0);
+
+    expect(result.assignments).toHaveLength(28);
+    expect(result.assignments.every((assignment) => assignment.employee !== null)).toBe(true);
+    expect(result.blockedSlots).toEqual([]);
+    expect(totalAssigned).toBe(totalAvailable);
   });
 });

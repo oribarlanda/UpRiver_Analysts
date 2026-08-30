@@ -59,12 +59,14 @@ interface ParsedState {
   omerWantCount: number;
 }
 
+type StateKey = string | number;
+
 interface DPEntry {
   preferNotCount: number;
   tripleCount: number;
   restViolationCount: number;
 
-  prevKey: number | null;
+  prevKey: StateKey | null;
   dayOptionIndex: number | null;
 }
 
@@ -90,10 +92,8 @@ export interface SchedulerOptions {
  */
 const HALF_HOUR_UNITS = 4;
 
-/**
- * One employee can receive at most 21 wanted shifts in a week.
- */
-const WANT_BASE = 22;
+/** Legacy packed-state radices used only when they are provably safe. */
+const LEGACY_WANT_BASE = 22;
 
 const EMPLOYEE_BITS: Record<
   Employee,
@@ -122,16 +122,7 @@ const EMPLOYEE_CODE: Record<
   omer: 3,
 };
 
-const MIDWEEK_SHIFT_INDEX: Record<
-  ShiftType,
-  number
-> = {
-  morning: 0,
-  afternoon: 1,
-  evening: 2,
-};
-
-function stateKey(
+function stringStateKey(
   hilaSum: number,
   yaaraSum: number,
   weekendMask: number,
@@ -140,102 +131,41 @@ function stateKey(
   hilaWantCount: number,
   yaaraWantCount: number,
   omerWantCount: number
-): number {
-  let key =
-    hilaSum;
-
-  key =
-    key * 256 +
-    yaaraSum;
-
-  key =
-    key * 8 +
-    weekendMask;
-
-  key =
-    key * 512 +
-    midweekMask;
-
-  key =
-    key * 4 +
-    previousEveningCode;
-
-  key =
-    key * WANT_BASE +
-    hilaWantCount;
-
-  key =
-    key * WANT_BASE +
-    yaaraWantCount;
-
-  key =
-    key * WANT_BASE +
-    omerWantCount;
-
-  return key;
+): StateKey {
+  return [
+    hilaSum,
+    yaaraSum,
+    weekendMask,
+    midweekMask,
+    previousEveningCode,
+    hilaWantCount,
+    yaaraWantCount,
+    omerWantCount,
+  ].join("|");
 }
 
-function parseStateKey(
-  key: number
+function parseStringStateKey(
+  key: string
 ): ParsedState {
-  let current =
-    key;
+  const values = key.split("|").map(Number);
 
-  const omerWantCount =
-    current % WANT_BASE;
+  if (
+    values.length !== 8 ||
+    values.some((value) => !Number.isFinite(value))
+  ) {
+    throw new Error(`Invalid scheduler state key: ${key}`);
+  }
 
-  current =
-    Math.floor(
-      current / WANT_BASE
-    );
-
-  const yaaraWantCount =
-    current % WANT_BASE;
-
-  current =
-    Math.floor(
-      current / WANT_BASE
-    );
-
-  const hilaWantCount =
-    current % WANT_BASE;
-
-  current =
-    Math.floor(
-      current / WANT_BASE
-    );
-
-  const previousEveningCode =
-    current % 4;
-
-  current =
-    Math.floor(
-      current / 4
-    );
-
-  const midweekMask =
-    current % 512;
-
-  current =
-    Math.floor(
-      current / 512
-    );
-
-  const weekendMask =
-    current % 8;
-
-  current =
-    Math.floor(
-      current / 8
-    );
-
-  const yaaraSum =
-    current % 256;
-
-  const hilaSum =
-    Math.floor(
-      current / 256
-    );
+  const [
+    hilaSum,
+    yaaraSum,
+    weekendMask,
+    midweekMask,
+    previousEveningCode,
+    hilaWantCount,
+    yaaraWantCount,
+    omerWantCount,
+  ] = values;
 
   return {
     hilaSum,
@@ -250,6 +180,92 @@ function parseStateKey(
     yaaraWantCount,
     omerWantCount,
   };
+}
+
+function packedStateKey(
+  hilaSum: number,
+  yaaraSum: number,
+  weekendMask: number,
+  midweekMask: number,
+  previousEveningCode: number,
+  hilaWantCount: number,
+  yaaraWantCount: number,
+  omerWantCount: number
+): number {
+  let key = hilaSum;
+  key = key * 256 + yaaraSum;
+  key = key * 8 + weekendMask;
+  key = key * 512 + midweekMask;
+  key = key * 4 + previousEveningCode;
+  key = key * LEGACY_WANT_BASE + hilaWantCount;
+  key = key * LEGACY_WANT_BASE + yaaraWantCount;
+  key = key * LEGACY_WANT_BASE + omerWantCount;
+  return key;
+}
+
+function parsePackedStateKey(key: number): ParsedState {
+  let current = key;
+  const omerWantCount = current % LEGACY_WANT_BASE;
+  current = Math.floor(current / LEGACY_WANT_BASE);
+  const yaaraWantCount = current % LEGACY_WANT_BASE;
+  current = Math.floor(current / LEGACY_WANT_BASE);
+  const hilaWantCount = current % LEGACY_WANT_BASE;
+  current = Math.floor(current / LEGACY_WANT_BASE);
+  const previousEveningCode = current % 4;
+  current = Math.floor(current / 4);
+  const midweekMask = current % 512;
+  current = Math.floor(current / 512);
+  const weekendMask = current % 8;
+  current = Math.floor(current / 8);
+  const yaaraSum = current % 256;
+  const hilaSum = Math.floor(current / 256);
+
+  return {
+    hilaSum,
+    yaaraSum,
+    weekendMask,
+    midweekMask,
+    previousEveningCode,
+    hilaWantCount,
+    yaaraWantCount,
+    omerWantCount,
+  };
+}
+
+/**
+ * The previous packed-number key sorted states lexicographically by these
+ * fields. Keeping that ordering preserves deterministic legacy tie-breaking
+ * while the collision-free string key removes all fixed radix limits.
+ */
+function compareParsedStates(first: ParsedState, second: ParsedState): number {
+  const firstValues = [
+    first.hilaSum,
+    first.yaaraSum,
+    first.weekendMask,
+    first.midweekMask,
+    first.previousEveningCode,
+    first.hilaWantCount,
+    first.yaaraWantCount,
+    first.omerWantCount,
+  ];
+  const secondValues = [
+    second.hilaSum,
+    second.yaaraSum,
+    second.weekendMask,
+    second.midweekMask,
+    second.previousEveningCode,
+    second.hilaWantCount,
+    second.yaaraWantCount,
+    second.omerWantCount,
+  ];
+
+  for (let index = 0; index < firstValues.length; index++) {
+    if (firstValues[index] !== secondValues[index]) {
+      return firstValues[index] - secondValues[index];
+    }
+  }
+
+  return 0;
 }
 
 function countBits(
@@ -280,8 +296,24 @@ function isAcceptable(
   );
 }
 
-function isWeekendOrPremiumMorningEvening(
-  slot: ShiftSlot
+function orderedShiftTypes(slots: ShiftSlot[]): ShiftType[] {
+  const seen = new Set<ShiftType>();
+  const ordered: ShiftType[] = [];
+
+  for (const slot of slots) {
+    if (!seen.has(slot.shiftType)) {
+      seen.add(slot.shiftType);
+      ordered.push(slot.shiftType);
+    }
+  }
+
+  return ordered;
+}
+
+function isWeekendOrPremiumBoundaryShift(
+  slot: ShiftSlot,
+  firstShiftType: ShiftType,
+  lastShiftType: ShiftType
 ): boolean {
   const isWeekend =
     slot.dayIndex === 5 ||
@@ -293,10 +325,8 @@ function isWeekendOrPremiumMorningEvening(
       slot.isPremium
     ) &&
     (
-      slot.shiftType ===
-        "morning" ||
-      slot.shiftType ===
-        "evening"
+      slot.shiftType === firstShiftType ||
+      slot.shiftType === lastShiftType
     )
   );
 }
@@ -312,16 +342,17 @@ function isMidweek(
 
 function midweekCoverageBit(
   employee: Employee,
-  shiftType: ShiftType
+  shiftType: ShiftType,
+  shiftIndexByType: ReadonlyMap<ShiftType, number>,
+  shiftTypeCount: number
 ): number {
-  const bitIndex =
-    EMPLOYEE_INDEX[
-      employee
-    ] *
-      3 +
-    MIDWEEK_SHIFT_INDEX[
-      shiftType
-    ];
+  const shiftIndex = shiftIndexByType.get(shiftType);
+
+  if (shiftIndex === undefined) {
+    throw new Error(`Unknown shift type in scheduler slots: ${shiftType}`);
+  }
+
+  const bitIndex = EMPLOYEE_INDEX[employee] * shiftTypeCount + shiftIndex;
 
   return (
     1 << bitIndex
@@ -449,7 +480,11 @@ function buildDayOptions(
   slots: ShiftSlot[],
   pref: Pref,
   feasibleBySlot:
-    AssignmentOption[][]
+    AssignmentOption[][],
+  firstShiftType: ShiftType,
+  lastShiftType: ShiftType,
+  shiftIndexByType: ReadonlyMap<ShiftType, number>,
+  shiftTypeCount: number
 ): DayOption[] {
   const results:
     DayOption[] = [];
@@ -573,8 +608,10 @@ function buildDayOptions(
       }
 
       if (
-        isWeekendOrPremiumMorningEvening(
-          slot
+        isWeekendOrPremiumBoundaryShift(
+          slot,
+          firstShiftType,
+          lastShiftType
         ) &&
         isAcceptable(
           preference
@@ -597,7 +634,9 @@ function buildDayOptions(
         midweekMask |=
           midweekCoverageBit(
             option,
-            slot.shiftType
+            slot.shiftType,
+            shiftIndexByType,
+            shiftTypeCount
           );
       }
 
@@ -632,8 +671,7 @@ function buildDayOptions(
       }
 
       if (
-        slot.shiftType ===
-        "morning"
+        slot.shiftType === firstShiftType
       ) {
         morningEmployeeCode =
           EMPLOYEE_CODE[
@@ -642,8 +680,7 @@ function buildDayOptions(
       }
 
       if (
-        slot.shiftType ===
-        "evening"
+        slot.shiftType === lastShiftType
       ) {
         eveningEmployeeCode =
           EMPLOYEE_CODE[
@@ -652,17 +689,10 @@ function buildDayOptions(
       }
     }
 
-    const tripleCount =
-      day.slotIndices.length ===
-        3 &&
-      EMPLOYEES.some(
-        (employee) =>
-          counts[
-            employee
-          ] === 3
-      )
-        ? 1
-        : 0;
+    const tripleCount = EMPLOYEES.reduce(
+      (penalty, employee) => penalty + Math.max(0, counts[employee] - 2),
+      0
+    );
 
     results.push({
       assignments:
@@ -787,6 +817,65 @@ export function generateAssignments(
   options:
     SchedulerOptions = {}
 ): ScheduleResult {
+  const shiftTypes = orderedShiftTypes(slots);
+
+  if (shiftTypes.length === 0) {
+    throw new Error("Scheduler requires at least one configured shift type.");
+  }
+
+  if (shiftTypes.length * EMPLOYEES.length >= 31) {
+    throw new Error("Scheduler supports at most 10 shift types per day.");
+  }
+
+  const firstShiftType = shiftTypes[0];
+  const lastShiftType = shiftTypes[shiftTypes.length - 1];
+  const shiftIndexByType = new Map(
+    shiftTypes.map((shiftType, index) => [shiftType, index] as const)
+  );
+  const maximumWeekUnits = slots.reduce(
+    (total, slot) => total + slot.unit,
+    0
+  );
+  const useLegacyPackedState =
+    shiftTypes.length === 3 &&
+    slots.length <= 21 &&
+    maximumWeekUnits < 256 &&
+    slots.every((slot) => Number.isInteger(slot.unit));
+
+  const encodeState = useLegacyPackedState
+    ? packedStateKey
+    : stringStateKey;
+  const parsedStateByKey = new Map<StateKey, ParsedState>();
+
+  function getParsedState(key: StateKey): ParsedState {
+    const cached = parsedStateByKey.get(key);
+
+    if (cached) {
+      return cached;
+    }
+
+    const parsed =
+      typeof key === "number"
+        ? parsePackedStateKey(key)
+        : parseStringStateKey(key);
+    parsedStateByKey.set(key, parsed);
+    return parsed;
+  }
+
+  function compareKeys(firstKey: StateKey, secondKey: StateKey): number {
+    if (
+      typeof firstKey === "number" &&
+      typeof secondKey === "number"
+    ) {
+      return firstKey - secondKey;
+    }
+
+    return compareParsedStates(
+      getParsedState(firstKey),
+      getParsedState(secondKey)
+    );
+  }
+
   const pref: Pref = (
     employee,
     slotIndex
@@ -874,8 +963,10 @@ export function generateAssignments(
       }
 
       if (
-        isWeekendOrPremiumMorningEvening(
-          slot
+        isWeekendOrPremiumBoundaryShift(
+          slot,
+          firstShiftType,
+          lastShiftType
         )
       ) {
         eligibleWeekendMask |=
@@ -892,7 +983,9 @@ export function generateAssignments(
         eligibleMidweekMask |=
           midweekCoverageBit(
             employee,
-            slot.shiftType
+            slot.shiftType,
+            shiftIndexByType,
+            shiftTypes.length
           );
       }
     }
@@ -910,7 +1003,11 @@ export function generateAssignments(
           day,
           slots,
           pref,
-          feasibleBySlot
+          feasibleBySlot,
+          firstShiftType,
+          lastShiftType,
+          shiftIndexByType,
+          shiftTypes.length
         )
     );
 
@@ -933,11 +1030,11 @@ export function generateAssignments(
 
   let dp =
     new Map<
-      number,
+      StateKey,
       DPEntry
     >([
       [
-        stateKey(
+        encodeState(
           0,
           0,
           0,
@@ -969,7 +1066,7 @@ export function generateAssignments(
 
   const dpByDay:
     Map<
-      number,
+      StateKey,
       DPEntry
     >[] = [
       dp,
@@ -983,7 +1080,7 @@ export function generateAssignments(
   ) {
     const nextDp =
       new Map<
-        number,
+        StateKey,
         DPEntry
       >();
 
@@ -991,8 +1088,7 @@ export function generateAssignments(
       Array.from(
         dp.keys()
       ).sort(
-        (a, b) =>
-          a - b
+        compareKeys
       );
 
     for (
@@ -1000,7 +1096,7 @@ export function generateAssignments(
       sortedKeys
     ) {
       const state =
-        parseStateKey(
+        getParsedState(
           key
         );
 
@@ -1035,7 +1131,7 @@ export function generateAssignments(
             : 0;
 
         const nextKey =
-          stateKey(
+          encodeState(
             state.hilaSum +
               option.hilaUnits,
 
@@ -1159,7 +1255,7 @@ export function generateAssignments(
   }
 
   let bestKey:
-    | number
+    | StateKey
     | null =
     null;
 
@@ -1204,8 +1300,7 @@ export function generateAssignments(
     Array.from(
       dp.keys()
     ).sort(
-      (a, b) =>
-        a - b
+      compareKeys
     )
   ) {
     const entry =
@@ -1214,7 +1309,7 @@ export function generateAssignments(
       )!;
 
     const state =
-      parseStateKey(
+      getParsedState(
         key
       );
 

@@ -25,7 +25,10 @@ export async function POST(req: NextRequest) {
 
   const week = await getOrCreateWeek(parsed.data.weekStart);
   const assignments = await getAssignments(week.id);
-  const missing = findMissingAssignments(assignments);
+  const missing = findMissingAssignments(
+    assignments,
+    week.shift_definitions.map((shift) => shift.id)
+  );
 
   try {
     assertPublishable(week.status, missing.length);

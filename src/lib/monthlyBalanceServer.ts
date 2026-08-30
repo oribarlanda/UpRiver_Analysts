@@ -3,6 +3,7 @@ import { buildWeekSlots } from "@/lib/weekSlots";
 import {
   Employee,
   EMPLOYEES,
+  ShiftDefinition,
   ShiftType,
 } from "@/lib/types";
 import {
@@ -17,6 +18,7 @@ interface WeekDbRow {
   week_start: string;
   status: "open" | "draft" | "published";
   premium_days: number[] | null;
+  shift_definitions: ShiftDefinition[];
 }
 
 interface AssignmentDbRow {
@@ -57,7 +59,10 @@ function sumAssignmentsForWeek(
   assignments: AssignmentDbRow[]
 ): EmployeeTotals {
   const totals = emptyEmployeeTotals();
-  const slots = buildWeekSlots(week.premium_days ?? [5, 6]);
+  const slots = buildWeekSlots(
+    week.premium_days ?? [5, 6],
+    week.shift_definitions
+  );
   const unitBySlot = new Map<string, number>();
 
   for (const slot of slots) {
@@ -107,7 +112,7 @@ export async function getMonthlyBalanceContext(
 
   const { data: weekData, error: weekError } = await supabase
     .from("weeks")
-    .select("id, week_start, status, premium_days")
+    .select("id, week_start, status, premium_days, shift_definitions")
     .in("week_start", info.periodWeekStarts);
 
   if (weekError) {

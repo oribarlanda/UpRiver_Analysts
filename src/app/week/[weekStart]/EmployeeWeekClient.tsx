@@ -10,13 +10,18 @@ import SaveIndicator, { SaveState } from "@/components/SaveIndicator";
 import { LatestValueQueue, SettleInfo } from "@/lib/latestValueQueue";
 import { dayInWeek } from "@/lib/dates";
 import {
+  compactCalendarDate,
+  formatIcsLocalDateTime,
+  resolveShiftCalendarInterval,
+} from "@/lib/shiftCalendar";
+import {
   DAY_LABELS,
+  DEFAULT_SHIFT_DEFINITIONS,
   Employee,
   EMPLOYEE_LABELS,
   PreferenceRow,
   PreferenceValue,
-  SHIFT_TYPES,
-  SHIFT_TYPE_LABELS,
+  ShiftDefinition,
   ShiftType,
   WeekRow,
 } from "@/lib/types";
@@ -30,11 +35,6 @@ interface AssignmentInfo {
 interface MissingShift {
   dayIndex: number;
   shiftType: ShiftType;
-}
-
-interface ShiftTime {
-  start: string;
-  end: string;
 }
 
 const ASSIGNMENT_STYLES: Record<Employee, string> = {
@@ -64,27 +64,6 @@ const ASSIGNMENT_IMAGE_COLORS: Record<
   },
 };
 
-const SHIFT_TIMES: Record<ShiftType, ShiftTime> = {
-  morning: {
-    start: "080000",
-    end: "090000",
-  },
-  afternoon: {
-    start: "140000",
-    end: "143000",
-  },
-  evening: {
-    start: "210000",
-    end: "220000",
-  },
-};
-
-const SHIFT_SORT_ORDER: Record<ShiftType, number> = {
-  morning: 0,
-  afternoon: 1,
-  evening: 2,
-};
-
 function formatDayAndMonth(isoDate: string): string {
   const [, month, day] = isoDate.split("-");
   return `${day}.${month}`;
@@ -95,23 +74,12 @@ function formatFullDate(isoDate: string): string {
   return `${day}.${month}.${year}`;
 }
 
-function compactDate(isoDate: string): string {
-  return isoDate.replaceAll("-", "");
-}
-
 function escapeIcsText(value: string): string {
   return value
     .replaceAll("\\", "\\\\")
     .replaceAll(";", "\\;")
     .replaceAll(",", "\\,")
     .replaceAll("\n", "\\n");
-}
-
-function formatIcsDateTime(
-  isoDate: string,
-  compactTime: string
-): string {
-  return `${compactDate(isoDate)}T${compactTime}`;
 }
 
 function drawRoundedRect(
@@ -201,6 +169,19 @@ export default function EmployeeWeekClient({
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [exportingCalendar, setExportingCalendar] =
     useState(false);
+
+  const shiftDefinitions: ShiftDefinition[] =
+    week?.shift_definitions?.length
+      ? week.shift_definitions
+      : DEFAULT_SHIFT_DEFINITIONS;
+
+  const shiftDefinitionById = new Map(
+    shiftDefinitions.map((shift) => [shift.id, shift])
+  );
+
+  const shiftSortOrder = new Map(
+    shiftDefinitions.map((shift, index) => [shift.id, index])
+  );
 
   const weekStartRef = useRef(weekStart);
   const employeeRef = useRef(employee);
@@ -369,7 +350,13 @@ export default function EmployeeWeekClient({
           return;
         }
 
-        setWeek(data.week);
+        setWeek({
+          ...data.week,
+          shift_definitions:
+            data.shiftDefinitions ??
+            data.week.shift_definitions ??
+            DEFAULT_SHIFT_DEFINITIONS,
+        });
 
         clearIdleTimer();
         batchHadErrorRef.current = false;
@@ -463,13 +450,27 @@ export default function EmployeeWeekClient({
       weekStart,
       assignment.day_index
     );
-    const times = SHIFT_TIMES[assignment.shift_type];
-    const date = compactDate(shiftDate);
+    const shift = shiftDefinitionById.get(
+      assignment.shift_type
+    );
+
+    if (!shift) {
+      return "#";
+    }
+
+    const interval = resolveShiftCalendarInterval(
+      shiftDate,
+      shift
+    );
 
     const params = new URLSearchParams({
       action: "TEMPLATE",
-      text: `${SHIFT_TYPE_LABELS[assignment.shift_type]} - משמרת`,
-      dates: `${date}T${times.start}/${date}T${times.end}`,
+      text: `${shift.name} - משמרת`,
+      dates: `${compactCalendarDate(interval.startDate)}T${
+        interval.startCompactTime
+      }/${compactCalendarDate(interval.endDate)}T${
+        interval.endCompactTime
+      }`,
       ctz: "Asia/Jerusalem",
       details: `שיבוץ שבועי עבור ${EMPLOYEE_LABELS[employee]}`,
     });
@@ -504,24 +505,34 @@ export default function EmployeeWeekClient({
             weekStart,
             assignment.day_index
           );
-          const times =
-            SHIFT_TIMES[assignment.shift_type];
-          const title = `${
-            SHIFT_TYPE_LABELS[assignment.shift_type]
-          } - משמרת`;
+          const shift = shiftDefinitionById.get(
+            assignment.shift_type
+          );
+
+          if (!shift) {
+            throw new Error(
+              `Missing shift definition for ${assignment.shift_type}`
+            );
+          }
+
+          const interval = resolveShiftCalendarInterval(
+            shiftDate,
+            shift
+          );
+          const title = `${shift.name} - משמרת`;
           const description = `שיבוץ שבועי עבור ${EMPLOYEE_LABELS[employee]}`;
 
           return [
             "BEGIN:VEVENT",
             `UID:${weekStart}-${employee}-${assignment.day_index}-${assignment.shift_type}-${index}@upriver-analysts`,
             `DTSTAMP:${nowStamp}`,
-            `DTSTART;TZID=Asia/Jerusalem:${formatIcsDateTime(
-              shiftDate,
-              times.start
+            `DTSTART;TZID=Asia/Jerusalem:${formatIcsLocalDateTime(
+              interval.startDate,
+              interval.startCompactTime
             )}`,
-            `DTEND;TZID=Asia/Jerusalem:${formatIcsDateTime(
-              shiftDate,
-              times.end
+            `DTEND;TZID=Asia/Jerusalem:${formatIcsLocalDateTime(
+              interval.endDate,
+              interval.endCompactTime
             )}`,
             `SUMMARY:${escapeIcsText(title)}`,
             `DESCRIPTION:${escapeIcsText(
@@ -640,7 +651,8 @@ export default function EmployeeWeekClient({
     assignmentMap: Map<string, Employee>
   ): Promise<Blob> {
     const canvas = document.createElement("canvas");
-    const width = 1200;
+    const shiftCount = shiftDefinitions.length;
+    const width = Math.max(1200, 330 + shiftCount * 230);
     const height = 1180;
     const context = canvas.getContext("2d");
 
@@ -689,45 +701,36 @@ export default function EmployeeWeekClient({
 
     const tableX = 55;
     const tableY = 220;
-    const tableWidth = 1090;
+    const tableWidth = width - tableX * 2;
     const gap = 12;
     const dayWidth = 205;
     const shiftWidth =
-      (tableWidth - dayWidth - gap * 3) / 3;
+      (tableWidth - dayWidth - gap * shiftCount) /
+      shiftCount;
     const headerHeight = 68;
     const rowHeight = 112;
 
-    const columns: Array<{
-      key: "day" | ShiftType;
+    const shiftColumns: Array<{
+      shiftId: ShiftType;
       label: string;
       x: number;
       width: number;
-    }> = [
-      {
-        key: "evening",
-        label: SHIFT_TYPE_LABELS.evening,
-        x: tableX,
+    }> = [...shiftDefinitions]
+      .reverse()
+      .map((shift, index) => ({
+        shiftId: shift.id,
+        label: shift.name,
+        x: tableX + (shiftWidth + gap) * index,
         width: shiftWidth,
-      },
-      {
-        key: "afternoon",
-        label: SHIFT_TYPE_LABELS.afternoon,
-        x: tableX + shiftWidth + gap,
-        width: shiftWidth,
-      },
-      {
-        key: "morning",
-        label: SHIFT_TYPE_LABELS.morning,
-        x: tableX + (shiftWidth + gap) * 2,
-        width: shiftWidth,
-      },
-      {
-        key: "day",
-        label: "יום",
-        x: tableX + (shiftWidth + gap) * 3,
-        width: dayWidth,
-      },
-    ];
+      }));
+
+    const dayColumn = {
+      label: "יום",
+      x: tableX + (shiftWidth + gap) * shiftCount,
+      width: dayWidth,
+    };
+
+    const columns = [...shiftColumns, dayColumn];
 
     for (const column of columns) {
       drawRoundedRect(
@@ -763,8 +766,6 @@ export default function EmployeeWeekClient({
         16 +
         dayIndex * rowHeight;
 
-      const dayColumn = columns[3];
-
       drawRoundedRect(
         context,
         dayColumn.x,
@@ -796,18 +797,17 @@ export default function EmployeeWeekClient({
         rowY + 70
       );
 
-      for (const shiftType of SHIFT_TYPES) {
-        const columnIndex =
-          shiftType === "evening"
-            ? 0
-            : shiftType === "afternoon"
-              ? 1
-              : 2;
+      for (const shift of shiftDefinitions) {
+        const column = shiftColumns.find(
+          (candidate) => candidate.shiftId === shift.id
+        );
 
-        const column = columns[columnIndex];
+        if (!column) {
+          continue;
+        }
 
         const assignedTo = assignmentMap.get(
-          `${dayIndex}-${shiftType}`
+          `${dayIndex}-${shift.id}`
         );
 
         const palette = assignedTo
@@ -835,7 +835,10 @@ export default function EmployeeWeekClient({
         context.stroke();
 
         context.fillStyle = palette.text;
-        context.font = "700 28px Arial";
+        context.font = `700 ${Math.max(
+          18,
+          29 - shiftCount * 1.5
+        )}px Arial`;
         context.textAlign = "center";
         context.fillText(
           assignedTo
@@ -979,8 +982,10 @@ export default function EmployeeWeekClient({
       }
 
       return (
-        SHIFT_SORT_ORDER[first.shift_type] -
-        SHIFT_SORT_ORDER[second.shift_type]
+        (shiftSortOrder.get(first.shift_type) ??
+          Number.MAX_SAFE_INTEGER) -
+        (shiftSortOrder.get(second.shift_type) ??
+          Number.MAX_SAFE_INTEGER)
       );
     });
 
@@ -1007,7 +1012,10 @@ export default function EmployeeWeekClient({
 
       {week?.status === "open" && (
         <>
-          <CompletionBar completed={completed} />
+          <CompletionBar
+            completed={completed}
+            total={7 * shiftDefinitions.length}
+          />
 
           <PreferenceLegend />
 
@@ -1035,15 +1043,20 @@ export default function EmployeeWeekClient({
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl bg-white p-2 shadow-sm">
-        <table className="w-full table-fixed border-collapse text-center text-sm">
+      <div className="overflow-x-auto rounded-xl bg-white p-2 shadow-sm">
+        <table
+          className="w-full table-fixed border-collapse text-center text-sm"
+          style={{
+            minWidth: `${120 + shiftDefinitions.length * 110}px`,
+          }}
+        >
           <colgroup>
-            <col className="w-[22%]" />
+            <col style={{ width: "120px" }} />
 
-            {SHIFT_TYPES.map((shiftType) => (
+            {shiftDefinitions.map((shift) => (
               <col
-                key={shiftType}
-                className="w-[26%]"
+                key={shift.id}
+                style={{ minWidth: "110px" }}
               />
             ))}
           </colgroup>
@@ -1054,17 +1067,13 @@ export default function EmployeeWeekClient({
                 יום
               </th>
 
-              {SHIFT_TYPES.map(
-                (shiftType) => (
+              {shiftDefinitions.map(
+                (shift) => (
                   <th
-                    key={shiftType}
+                    key={shift.id}
                     className="p-2 text-xs font-medium text-slate-500"
                   >
-                    {
-                      SHIFT_TYPE_LABELS[
-                        shiftType
-                      ]
-                    }
+                    {shift.name}
                   </th>
                 )
               )}
@@ -1096,9 +1105,9 @@ export default function EmployeeWeekClient({
                       </div>
                     </td>
 
-                    {SHIFT_TYPES.map(
-                      (shiftType) => {
-                        const key = `${dayIndex}-${shiftType}`;
+                    {shiftDefinitions.map(
+                      (shift) => {
+                        const key = `${dayIndex}-${shift.id}`;
 
                         if (
                           week?.status ===
@@ -1119,7 +1128,7 @@ export default function EmployeeWeekClient({
                           return (
                             <td
                               key={
-                                shiftType
+                                shift.id
                               }
                               className="p-1 align-middle"
                             >
@@ -1138,7 +1147,7 @@ export default function EmployeeWeekClient({
 
                         return (
                           <td
-                            key={shiftType}
+                            key={shift.id}
                             className="p-1 align-middle"
                           >
                             <ShiftCell
@@ -1154,7 +1163,7 @@ export default function EmployeeWeekClient({
                               ) =>
                                 handleChange(
                                   dayIndex,
-                                  shiftType,
+                                  shift.id,
                                   next
                                 )
                               }
@@ -1387,26 +1396,20 @@ export default function EmployeeWeekClient({
                         assignment.day_index
                       );
 
-                    const times =
-                      SHIFT_TIMES[
+                    const shift =
+                      shiftDefinitionById.get(
                         assignment.shift_type
-                      ];
+                      );
 
-                    const startTime = `${times.start.slice(
-                      0,
-                      2
-                    )}:${times.start.slice(
-                      2,
-                      4
-                    )}`;
+                    if (!shift) {
+                      return null;
+                    }
 
-                    const endTime = `${times.end.slice(
-                      0,
-                      2
-                    )}:${times.end.slice(
-                      2,
-                      4
-                    )}`;
+                    const interval =
+                      resolveShiftCalendarInterval(
+                        shiftDate,
+                        shift
+                      );
 
                     return (
                       <a
@@ -1432,14 +1435,12 @@ export default function EmployeeWeekClient({
                           </div>
 
                           <div className="mt-1 text-xs text-slate-500">
-                            {
-                              SHIFT_TYPE_LABELS[
-                                assignment
-                                  .shift_type
-                              ]
-                            }{" "}
-                            • {startTime}–
-                            {endTime}
+                            {shift.name} •{" "}
+                            {interval.startTime}–
+                            {interval.endTime}
+                            {interval.crossesMidnight
+                              ? " (למחרת)"
+                              : ""}
                           </div>
                         </div>
 

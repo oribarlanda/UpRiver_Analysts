@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import WeekNav from "@/components/WeekNav";
 import SaveIndicator, {
@@ -32,13 +33,13 @@ import {
 } from "@/lib/completeness";
 import {
   DAY_LABELS,
+  DEFAULT_SHIFT_DEFINITIONS,
   Employee,
   EMPLOYEES,
   EMPLOYEE_LABELS,
   PreferenceRow,
   PreferenceValue,
-  SHIFT_TYPES,
-  SHIFT_TYPE_LABELS,
+  ShiftDefinition,
   ShiftType,
   WeekRow,
 } from "@/lib/types";
@@ -114,6 +115,36 @@ export default function AdminWeekClient({
 
   const [week, setWeek] =
     useState<WeekRow | null>(null);
+
+  const shiftDefinitions: ShiftDefinition[] =
+    useMemo(
+      () =>
+        week?.shift_definitions?.length
+          ? week.shift_definitions
+          : DEFAULT_SHIFT_DEFINITIONS,
+      [week?.shift_definitions]
+    );
+
+  const shiftTypes = useMemo(
+    () =>
+      shiftDefinitions.map(
+        (shift) => shift.id
+      ),
+    [shiftDefinitions]
+  );
+
+  const shiftLabelById = useMemo(
+    () =>
+      new Map(
+        shiftDefinitions.map(
+          (shift) => [
+            shift.id,
+            shift.name,
+          ]
+        )
+      ),
+    [shiftDefinitions]
+  );
 
   const [prefMap, setPrefMap] =
     useState<Record<string, PreferenceValue>>({});
@@ -488,7 +519,13 @@ export default function AdminWeekClient({
           return;
         }
 
-        setWeek(data.week);
+        setWeek({
+          ...data.week,
+          shift_definitions:
+            data.shiftDefinitions ??
+            data.week.shift_definitions ??
+            DEFAULT_SHIFT_DEFINITIONS,
+        });
 
         prefQueueRef.current!.reset();
         assignQueueRef.current!.reset();
@@ -663,9 +700,10 @@ export default function AdminWeekClient({
   const slots = useMemo(
     () =>
       buildWeekSlots(
-        week?.premium_days ?? [5, 6]
+        week?.premium_days ?? [5, 6],
+        shiftDefinitions
       ),
-    [week?.premium_days]
+    [week?.premium_days, shiftDefinitions]
   );
 
   const missingAssignments:
@@ -688,8 +726,11 @@ export default function AdminWeekClient({
           }
         );
 
-      return findMissingAssignments(list);
-    }, [assignMap]);
+      return findMissingAssignments(
+        list,
+        shiftTypes
+      );
+    }, [assignMap, shiftTypes]);
 
   const liveStats = useMemo(() => {
     const generated =
@@ -1050,13 +1091,38 @@ export default function AdminWeekClient({
           ניהול שיבוץ
         </h1>
 
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="text-sm text-slate-500 underline"
-        >
-          התנתקות
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/admin/settings?weekStart=${encodeURIComponent(
+              weekStart
+            )}`}
+            className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-200 px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-300 active:scale-[0.98]"
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.55V21h-4v-.08A1.7 1.7 0 0 0 8.97 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 8.97 4.6 1.7 1.7 0 0 0 10 3.08V3h4v.08A1.7 1.7 0 0 0 15.03 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
+            </svg>
+
+            הגדרות
+          </Link>
+
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="min-h-11 px-1 text-sm text-slate-500 underline"
+          >
+            התנתקות
+          </button>
+        </div>
       </header>
 
       <WeekNav
@@ -1269,17 +1335,13 @@ export default function AdminWeekClient({
                 יום
               </th>
 
-              {SHIFT_TYPES.map(
-                (shiftType) => (
+              {shiftDefinitions.map(
+                (shift) => (
                   <th
-                    key={shiftType}
+                    key={shift.id}
                     className="p-1 text-slate-500"
                   >
-                    {
-                      SHIFT_TYPE_LABELS[
-                        shiftType
-                      ]
-                    }
+                    {shift.name}
                   </th>
                 )
               )}
@@ -1294,10 +1356,10 @@ export default function AdminWeekClient({
                     {label}
                   </td>
 
-                  {SHIFT_TYPES.map(
-                    (shiftType) => (
+                  {shiftDefinitions.map(
+                    (shift) => (
                       <td
-                        key={shiftType}
+                        key={shift.id}
                         className="p-1"
                       >
                         <div className="flex justify-center gap-1">
@@ -1305,7 +1367,7 @@ export default function AdminWeekClient({
                             (employee) => {
                               const preference =
                                 prefMap[
-                                  `${employee}-${dayIndex}-${shiftType}`
+                                  `${employee}-${dayIndex}-${shift.id}`
                                 ];
 
                               const style =
@@ -1330,7 +1392,7 @@ export default function AdminWeekClient({
                                     handleEditPreference(
                                       employee,
                                       dayIndex,
-                                      shiftType
+                                      shift.id
                                     )
                                   }
                                   title={`${EMPLOYEE_LABELS[employee]}: ${
@@ -1462,11 +1524,9 @@ export default function AdminWeekClient({
                     ]
                   }{" "}
                   -{" "}
-                  {
-                    SHIFT_TYPE_LABELS[
-                      blocked.shiftType
-                    ]
-                  }
+                  {shiftLabelById.get(
+                    blocked.shiftType
+                  ) ?? blocked.shiftType}
                 </li>
               )
             )}
@@ -1500,11 +1560,9 @@ export default function AdminWeekClient({
                       ]
                     }{" "}
                     -{" "}
-                    {
-                      SHIFT_TYPE_LABELS[
-                        missing.shiftType
-                      ]
-                    }
+                    {shiftLabelById.get(
+                      missing.shiftType
+                    ) ?? missing.shiftType}
                   </li>
                 )
               )}
@@ -1525,17 +1583,13 @@ export default function AdminWeekClient({
                 יום
               </th>
 
-              {SHIFT_TYPES.map(
-                (shiftType) => (
+              {shiftDefinitions.map(
+                (shift) => (
                   <th
-                    key={shiftType}
+                    key={shift.id}
                     className="p-1 text-slate-500"
                   >
-                    {
-                      SHIFT_TYPE_LABELS[
-                        shiftType
-                      ]
-                    }
+                    {shift.name}
                   </th>
                 )
               )}
@@ -1550,10 +1604,10 @@ export default function AdminWeekClient({
                     {label}
                   </td>
 
-                  {SHIFT_TYPES.map(
-                    (shiftType) => {
+                  {shiftDefinitions.map(
+                    (shift) => {
                       const key =
-                        `${dayIndex}-${shiftType}`;
+                        `${dayIndex}-${shift.id}`;
 
                       const current =
                         assignMap[key]
@@ -1569,7 +1623,7 @@ export default function AdminWeekClient({
 
                       return (
                         <td
-                          key={shiftType}
+                          key={shift.id}
                           className="p-1"
                         >
                           <select
@@ -1579,7 +1633,7 @@ export default function AdminWeekClient({
                             ) =>
                               handleManualAssign(
                                 dayIndex,
-                                shiftType,
+                                shift.id,
                                 (event
                                   .target
                                   .value ||

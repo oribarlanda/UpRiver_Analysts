@@ -18,7 +18,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ week
   }
 
   const week = await getOrCreateWeek(weekStart);
-  const allPreferences = await getPreferences(week.id);
+  const shiftDefinitions = week.shift_definitions;
+  const shiftTypes = shiftDefinitions.map((shift) => shift.id);
+  const allPreferences = await getPreferences(week.id, shiftTypes);
 
   let preferences = allPreferences;
   if (session.role !== "admin") {
@@ -40,11 +42,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ week
   // Missing-preferences / missing-assignments are always recomputed fresh
   // from the current DB state (not just right after generation), so they
   // reappear correctly after any page reload.
-  const missingPreferences = findMissingPreferences(allPreferences);
-  const missingAssignmentsAll = session.role === "admin" ? findMissingAssignments(assignments) : [];
+  const missingPreferences = findMissingPreferences(allPreferences, shiftTypes);
+  const missingAssignmentsAll =
+    session.role === "admin"
+      ? findMissingAssignments(assignments, shiftTypes)
+      : [];
 
   return NextResponse.json({
     week,
+    shiftDefinitions,
     preferences,
     assignments,
     completionByEmployee: session.role === "admin" ? completionByEmployee : undefined,

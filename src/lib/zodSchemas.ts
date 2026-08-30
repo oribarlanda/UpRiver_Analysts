@@ -1,11 +1,89 @@
 import { z } from "zod";
 import { isValidWeekStart } from "./dates";
+import { MAX_SHIFTS_PER_DAY, SHIFT_ID_PATTERN } from "./types";
 
 export const employeeSchema = z.enum(["hila", "yaara", "omer"]);
 export const roleSchema = z.enum(["hila", "yaara", "omer", "admin"]);
-export const shiftTypeSchema = z.enum(["morning", "afternoon", "evening"]);
+export const shiftTypeSchema = z
+  .string()
+  .min(1)
+  .max(32)
+  .regex(
+    SHIFT_ID_PATTERN,
+    "מזהה משמרת יכול להכיל רק אותיות אנגליות קטנות, ספרות וקו תחתון."
+  );
 export const preferenceValueSchema = z.enum(["want", "can", "prefer_not", "cannot"]);
 export const weekStatusSchema = z.enum(["open", "draft", "published"]);
+
+const payValueSchema = z
+  .number()
+  .finite()
+  .min(0.125, "שווי משמרת חייב להיות לפחות 0.125.")
+  .max(24, "שווי משמרת לא יכול לעלות על 24.")
+  .refine(
+    (value) => Math.abs(value * 8 - Math.round(value * 8)) < 1e-9,
+    "שווי משמרת חייב להיות בכפולות של 0.125."
+  );
+
+const startTimeSchema = z
+  .string()
+  .regex(
+    /^(?:[01]\d|2[0-3]):[0-5]\d$/,
+    "שעת התחלה חייבת להיות בפורמט HH:mm."
+  );
+
+export const shiftDefinitionSchema = z.object({
+  id: shiftTypeSchema,
+  name: z.string().trim().min(1, "יש להזין שם למשמרת.").max(50),
+  payValue: payValueSchema,
+  startTime: startTimeSchema,
+  durationMinutes: z
+    .number()
+    .int()
+    .min(5, "אורך משמרת חייב להיות לפחות 5 דקות.")
+    .max(1440, "אורך משמרת לא יכול לעלות על 24 שעות."),
+});
+
+export const shiftDefinitionsSchema = z
+  .array(shiftDefinitionSchema)
+  .min(1, "חייבת להיות לפחות משמרת אחת ביום.")
+  .max(
+    MAX_SHIFTS_PER_DAY,
+    `ניתן להגדיר עד ${MAX_SHIFTS_PER_DAY} משמרות ביום.`
+  )
+  .superRefine((definitions, ctx) => {
+    const seenIds = new Map<string, number>();
+    const seenNames = new Map<string, number>();
+
+    definitions.forEach((definition, index) => {
+      const previousIdIndex = seenIds.get(definition.id);
+      if (previousIdIndex !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "מזהה משמרת חייב להיות ייחודי.",
+          path: [index, "id"],
+        });
+      } else {
+        seenIds.set(definition.id, index);
+      }
+
+      const normalizedName = definition.name.toLocaleLowerCase("he-IL");
+      const previousNameIndex = seenNames.get(normalizedName);
+      if (previousNameIndex !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "שם משמרת חייב להיות ייחודי.",
+          path: [index, "name"],
+        });
+      } else {
+        seenNames.set(normalizedName, index);
+      }
+    });
+  });
+
+export const shiftSettingsSchema = z.object({
+  shiftDefinitions: shiftDefinitionsSchema,
+});
 
 // Minimum PIN length policy: employees need 6+ digits, admin needs 8+.
 export const MIN_PIN_LENGTH: Record<z.infer<typeof roleSchema>, number> = {

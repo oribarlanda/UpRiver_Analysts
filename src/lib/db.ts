@@ -8,10 +8,13 @@ import {
   PreferenceRow,
   PreferenceValue,
   SHIFT_TYPES,
+  DEFAULT_SHIFT_DEFINITIONS,
+  ShiftDefinition,
   ShiftType,
   WeekRow,
   WeekStatus,
 } from "./types";
+import { shiftDefinitionsSchema } from "./zodSchemas";
 import {
   AssignmentsReplaceRepo,
   WeekRepo,
@@ -21,6 +24,54 @@ import {
 
 export type { WeekRepo, AssignmentsReplaceRepo };
 export { resolveWeek, replaceAssignmentsWith };
+
+function parseShiftDefinitions(value: unknown): ShiftDefinition[] {
+  return shiftDefinitionsSchema.parse(value);
+}
+
+function parseWeekRow(value: unknown): WeekRow {
+  const row = value as WeekRow;
+
+  return {
+    ...row,
+    shift_definitions: parseShiftDefinitions(row.shift_definitions),
+  };
+}
+
+/** Returns the global template used when a new week is created. */
+export async function getShiftDefinitions(): Promise<ShiftDefinition[]> {
+  const supabase = getSupabaseServerClient();
+
+  const { data, error } = await supabase
+    .from("app_settings")
+    .select("shift_definitions")
+    .eq("id", "global")
+    .single();
+
+  if (error) throw error;
+
+  return parseShiftDefinitions(data.shift_definitions);
+}
+
+/**
+ * Atomically replaces the global template and applies it to every open week.
+ * The database function also removes obsolete open-week rows and invalidates
+ * prior employee confirmations in the same transaction.
+ */
+export async function replaceShiftDefinitions(
+  shiftDefinitions: ShiftDefinition[]
+): Promise<ShiftDefinition[]> {
+  const validated = parseShiftDefinitions(shiftDefinitions);
+  const supabase = getSupabaseServerClient();
+
+  const { data, error } = await supabase.rpc("replace_shift_settings", {
+    p_shift_definitions: validated,
+  });
+
+  if (error) throw error;
+
+  return parseShiftDefinitions(data);
+}
 
 function makeSupabaseWeekRepo(): WeekRepo {
   const supabase = getSupabaseServerClient();
@@ -35,21 +86,14 @@ function makeSupabaseWeekRepo(): WeekRepo {
 
       if (error) throw error;
 
-      return (data as WeekRow) ?? null;
+      return data ? parseWeekRow(data) : null;
     },
 
     async insertIfAbsent(weekStart, defaults) {
-      const { error } = await supabase.from("weeks").upsert(
-        {
-          week_start: weekStart,
-          status: defaults.status,
-          premium_days: defaults.premiumDays,
-        },
-        {
-          onConflict: "week_start",
-          ignoreDuplicates: true,
-        }
-      );
+      const { error } = await supabase.rpc("create_week_if_absent", {
+        p_week_start: weekStart,
+        p_premium_days: defaults.premiumDays,
+      });
 
       if (error) throw error;
     },
@@ -69,6 +113,9 @@ export async function getOrCreateWeek(
     {
       status: "open",
       premiumDays: DEFAULT_PREMIUM_DAYS,
+      shiftDefinitions: DEFAULT_SHIFT_DEFINITIONS.map((shift) => ({
+        ...shift,
+      })),
     }
   );
 }
@@ -86,7 +133,7 @@ export async function getWeekByStart(
 
   if (error) throw error;
 
-  return (data as WeekRow) ?? null;
+  return data ? parseWeekRow(data) : null;
 }
 
 export async function updateWeekStatus(
@@ -132,7 +179,7 @@ export async function updatePremiumDays(
 }
 
 /**
- * Returns a complete 3 employees x 7 days x 3 shifts preference matrix.
+ * Returns a complete employees x days x configured-shifts preference matrix.
  *
  * A preference that has never been explicitly saved in the database is
  * treated as "can".
@@ -142,12 +189,13 @@ export async function updatePremiumDays(
  *
  * - Existing saved choices always win.
  * - Missing choices automatically behave as "can".
- * - The scheduler receives all 63 preferences.
- * - The admin page receives all 63 preferences.
+ * - The scheduler receives every configured preference.
+ * - The admin page receives every configured preference.
  * - A new week is immediately complete.
  */
 export async function getPreferences(
-  weekId: string
+  weekId: string,
+  shiftTypes: readonly ShiftType[] = SHIFT_TYPES
 ): Promise<PreferenceRow[]> {
   const supabase = getSupabaseServerClient();
 
@@ -177,7 +225,7 @@ export async function getPreferences(
 
   for (const employee of EMPLOYEES) {
     for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-      for (const shiftType of SHIFT_TYPES) {
+      for (const shiftType of shiftTypes) {
         const key = `${employee}-${dayIndex}-${shiftType}`;
 
         const saved = savedByKey.get(key);

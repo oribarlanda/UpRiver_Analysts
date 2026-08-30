@@ -143,14 +143,24 @@ export async function POST(
         .weekStart
     );
 
+  const shiftDefinitions =
+    week.shift_definitions;
+
+  const shiftTypes =
+    shiftDefinitions.map(
+      (shift) => shift.id
+    );
+
   const preferences =
     await getPreferences(
-      week.id
+      week.id,
+      shiftTypes
     );
 
   const missing =
     findMissingPreferences(
-      preferences
+      preferences,
+      shiftTypes
     );
 
   try {
@@ -225,7 +235,8 @@ export async function POST(
 
   const slots =
     buildWeekSlots(
-      week.premium_days
+      week.premium_days,
+      shiftDefinitions
     );
 
   /**

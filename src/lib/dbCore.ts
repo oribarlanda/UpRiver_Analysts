@@ -1,4 +1,10 @@
-import { WeekRow, ShiftType, Employee } from "./types";
+import {
+  DEFAULT_SHIFT_DEFINITIONS,
+  Employee,
+  ShiftDefinition,
+  ShiftType,
+  WeekRow,
+} from "./types";
 
 /**
  * This file intentionally has ZERO imports of "server-only",
@@ -17,7 +23,13 @@ export interface WeekRepo {
    * `INSERT ... ON CONFLICT (week_start) DO NOTHING`). May be a no-op if
    * the row already existed - callers must always re-fetch afterward to
    * get the canonical row either way. */
-  insertIfAbsent(weekStart: string, defaults: { status: "open"; premiumDays: number[] }): Promise<void>;
+  insertIfAbsent(weekStart: string, defaults: WeekDefaults): Promise<void>;
+}
+
+export interface WeekDefaults {
+  status: "open";
+  premiumDays: number[];
+  shiftDefinitions: ShiftDefinition[];
 }
 
 /**
@@ -31,7 +43,13 @@ export interface WeekRepo {
 export async function resolveWeek(
   repo: WeekRepo,
   weekStart: string,
-  defaults: { status: "open"; premiumDays: number[] } = { status: "open", premiumDays: [5, 6] }
+  defaults: WeekDefaults = {
+    status: "open",
+    premiumDays: [5, 6],
+    shiftDefinitions: DEFAULT_SHIFT_DEFINITIONS.map((shift) => ({
+      ...shift,
+    })),
+  }
 ): Promise<WeekRow> {
   await repo.insertIfAbsent(weekStart, defaults);
   const row = await repo.fetchByStart(weekStart);

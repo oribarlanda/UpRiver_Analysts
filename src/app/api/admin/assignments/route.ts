@@ -25,6 +25,18 @@ export async function POST(req: NextRequest) {
   try {
     const week = await getOrCreateWeek(parsed.data.weekStart);
     assertAssignmentsEditable(week.status);
+
+    if (
+      !week.shift_definitions.some(
+        (shift) => shift.id === parsed.data.shiftType
+      )
+    ) {
+      return NextResponse.json(
+        { error: "המשמרת אינה קיימת במבנה המשמרות של השבוע." },
+        { status: 400 }
+      );
+    }
+
     await upsertAssignment(week.id, parsed.data.dayIndex, parsed.data.shiftType, parsed.data.employee);
     return NextResponse.json({ ok: true });
   } catch (err) {

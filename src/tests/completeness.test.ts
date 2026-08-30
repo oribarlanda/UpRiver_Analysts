@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   findMissingAssignments,
   findMissingPreferences,
+  getTotalAssignmentsRequired,
+  getTotalPreferencesRequired,
   TOTAL_ASSIGNMENTS_REQUIRED,
   TOTAL_PREFERENCES_REQUIRED,
 } from "../lib/completeness";
@@ -34,6 +36,19 @@ describe("findMissingPreferences", () => {
     expect(missing.length).toBe(62);
     expect(missing.find((m) => m.employee === "hila" && m.dayIndex === 0 && m.shiftType === "morning")).toBeUndefined();
   });
+
+  it("uses the supplied dynamic shift set", () => {
+    const shiftTypes = ["early", "day", "late", "night"];
+    const missing = findMissingPreferences([], shiftTypes);
+
+    expect(missing).toHaveLength(84);
+    expect(getTotalPreferencesRequired(shiftTypes)).toBe(84);
+    expect(missing[0]).toEqual({
+      employee: "hila",
+      dayIndex: 0,
+      shiftType: "early",
+    });
+  });
 });
 
 describe("findMissingAssignments", () => {
@@ -51,6 +66,20 @@ describe("findMissingAssignments", () => {
       }
     }
     expect(findMissingAssignments(assignments)).toEqual([]);
+  });
+
+  it("uses the supplied dynamic shift set", () => {
+    const shiftTypes = ["early", "day", "late", "night"];
+    const assignments = [] as { day_index: number; shift_type: string }[];
+
+    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+      for (const shiftType of shiftTypes) {
+        assignments.push({ day_index: dayIndex, shift_type: shiftType });
+      }
+    }
+
+    expect(getTotalAssignmentsRequired(shiftTypes)).toBe(28);
+    expect(findMissingAssignments(assignments, shiftTypes)).toEqual([]);
   });
 });
 

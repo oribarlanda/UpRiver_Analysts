@@ -1,7 +1,49 @@
 export type Employee = "hila" | "yaara" | "omer";
 export type Role = Employee | "admin";
 
-export type ShiftType = "morning" | "afternoon" | "evening";
+/**
+ * A stable, database-backed shift identifier. The three legacy identifiers
+ * (morning / afternoon / evening) remain the defaults, while administrators
+ * may add or remove identifiers through the shift settings screen.
+ */
+export type ShiftType = string;
+
+export interface ShiftDefinition {
+  id: ShiftType;
+  name: string;
+  payValue: number;
+  startTime: string; // local wall-clock time, HH:mm
+  durationMinutes: number;
+}
+
+export const MAX_SHIFTS_PER_DAY = 5;
+
+export const SHIFT_ID_PATTERN = /^[a-z0-9_]+$/;
+
+/** The exact behavior that existed before shift settings were configurable. */
+export const DEFAULT_SHIFT_DEFINITIONS: ShiftDefinition[] = [
+  {
+    id: "morning",
+    name: "בוקר",
+    payValue: 1.25,
+    startTime: "08:00",
+    durationMinutes: 60,
+  },
+  {
+    id: "afternoon",
+    name: "צהריים",
+    payValue: 0.5,
+    startTime: "14:00",
+    durationMinutes: 30,
+  },
+  {
+    id: "evening",
+    name: "ערב",
+    payValue: 1.25,
+    startTime: "21:00",
+    durationMinutes: 60,
+  },
+];
 
 export type PreferenceValue = "want" | "can" | "prefer_not" | "cannot";
 
@@ -12,6 +54,7 @@ export interface WeekRow {
   week_start: string; // ISO date (Sunday)
   status: WeekStatus;
   premium_days: number[]; // day_index[] (0=Sunday..6=Saturday)
+  shift_definitions: ShiftDefinition[];
   published_at: string | null;
   created_at: string;
 }
@@ -36,7 +79,14 @@ export interface AssignmentRow {
 }
 
 export const EMPLOYEES: Employee[] = ["hila", "yaara", "omer"];
-export const SHIFT_TYPES: ShiftType[] = ["morning", "afternoon", "evening"];
+
+/**
+ * Compatibility exports for callers that have not yet loaded a week's
+ * snapshot. Runtime scheduling code should prefer week.shift_definitions.
+ */
+export const SHIFT_TYPES: ShiftType[] = DEFAULT_SHIFT_DEFINITIONS.map(
+  (shift) => shift.id
+);
 
 export const EMPLOYEE_LABELS: Record<Employee, string> = {
   hila: "הילה",
@@ -44,11 +94,28 @@ export const EMPLOYEE_LABELS: Record<Employee, string> = {
   omer: "עומר",
 };
 
-export const SHIFT_TYPE_LABELS: Record<ShiftType, string> = {
-  morning: "בוקר",
-  afternoon: "צהריים",
-  evening: "ערב",
-};
+export const SHIFT_TYPE_LABELS: Record<ShiftType, string> =
+  Object.fromEntries(
+    DEFAULT_SHIFT_DEFINITIONS.map((shift) => [shift.id, shift.name])
+  );
+
+/**
+ * Returns the immutable configuration snapshot attached to a week, with a
+ * defensive default for pre-migration/cached payloads.
+ */
+export function getWeekShiftDefinitions(
+  week: Pick<WeekRow, "shift_definitions"> | null | undefined
+): ShiftDefinition[] {
+  if (
+    week &&
+    Array.isArray(week.shift_definitions) &&
+    week.shift_definitions.length > 0
+  ) {
+    return week.shift_definitions;
+  }
+
+  return DEFAULT_SHIFT_DEFINITIONS.map((shift) => ({ ...shift }));
+}
 
 export const DAY_LABELS = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
 

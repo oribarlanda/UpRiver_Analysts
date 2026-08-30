@@ -36,6 +36,9 @@ function makeFakeRepo() {
           week_start: weekStart,
           status: defaults.status,
           premium_days: defaults.premiumDays,
+          shift_definitions: defaults.shiftDefinitions.map((shift) => ({
+            ...shift,
+          })),
           published_at: null,
           created_at: new Date().toISOString(),
         });

@@ -37,6 +37,14 @@ export async function POST(req: NextRequest) {
   try {
     const week = await getOrCreateWeek(weekStart);
     assertPreferencesEditable(week.status);
+
+    if (!week.shift_definitions.some((shift) => shift.id === shiftType)) {
+      return NextResponse.json(
+        { error: "המשמרת אינה קיימת במבנה המשמרות של השבוע." },
+        { status: 400 }
+      );
+    }
+
     await upsertPreference(week.id, employee, dayIndex, shiftType, preference);
     return NextResponse.json({ ok: true });
   } catch (err) {

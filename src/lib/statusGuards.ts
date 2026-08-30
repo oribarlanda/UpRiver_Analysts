@@ -31,10 +31,10 @@ export function assertGeneratable(status: WeekStatus): void {
   }
 }
 
-/** Generation is blocked until all three employees have answered all 21 shifts. */
+/** Generation is blocked until all employees have answered every configured shift. */
 export function assertPreferencesComplete(missingPreferenceCount: number): void {
   if (missingPreferenceCount > 0) {
-    throw new StatusError("לא ניתן ליצור שיבוץ - חסרות תשובות העדפה. יש להשלים את כל 21 המשמרות עבור שלוש העובדות.");
+    throw new StatusError("לא ניתן ליצור שיבוץ - חסרות תשובות העדפה. יש להשלים את כל המשמרות המוגדרות עבור שלוש העובדות.");
   }
 }
 
@@ -49,7 +49,7 @@ export function assertAssignmentsEditable(status: WeekStatus): void {
   }
 }
 
-/** Publishing requires a draft week with all 21 shifts assigned. */
+/** Publishing requires a draft week with every configured shift assigned. */
 export function assertPublishable(status: WeekStatus, missingAssignmentCount: number): void {
   if (status !== "draft") {
     throw new StatusError("ניתן לפרסם רק שבוע שנמצא במצב טיוטה.");
