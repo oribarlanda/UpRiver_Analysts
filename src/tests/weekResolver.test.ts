@@ -39,6 +39,7 @@ function makeFakeRepo() {
           shift_definitions: defaults.shiftDefinitions.map((shift) => ({
             ...shift,
           })),
+          algorithm_priorities: null,
           published_at: null,
           created_at: new Date().toISOString(),
         });

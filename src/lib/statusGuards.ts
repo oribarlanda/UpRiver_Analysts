@@ -24,6 +24,19 @@ export function assertPremiumDaysEditable(status: WeekStatus): void {
   }
 }
 
+/** Algorithm priorities are editable for an open or draft week, but never
+ * after publication. Reopening through the existing flow makes them editable
+ * again because it moves the week back to draft/open. */
+export function assertAlgorithmPrioritiesEditable(
+  status: WeekStatus
+): void {
+  if (status === "published") {
+    throw new StatusError(
+      "לא ניתן לשנות תעדוף לאחר פרסום השבוע. יש לפתוח מחדש."
+    );
+  }
+}
+
 /** The DP schedule may be (re)generated any time except after publication. */
 export function assertGeneratable(status: WeekStatus): void {
   if (status === "published") {

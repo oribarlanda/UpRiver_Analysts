@@ -11,6 +11,7 @@ import {
   MAX_SHIFTS_PER_DAY,
   ShiftDefinition,
 } from "@/lib/types";
+import AlgorithmPrioritySettings from "./AlgorithmPrioritySettings";
 
 interface ShiftDraft {
   id: string;
@@ -281,9 +282,17 @@ function validateDrafts(
 
 export default function ShiftStructureSettingsClient({
   backHref,
+  weekStart,
 }: {
   backHref: string;
+  weekStart: string;
 }) {
+  const [activeTab, setActiveTab] =
+    useState<
+      "shift-structure" | "algorithm-priority"
+    >("shift-structure");
+  const [priorityDirty, setPriorityDirty] =
+    useState(false);
   const [drafts, setDrafts] =
     useState<ShiftDraft[]>([]);
   const [savedDrafts, setSavedDrafts] =
@@ -314,6 +323,9 @@ export default function ShiftStructureSettingsClient({
       JSON.stringify(savedDrafts),
     [drafts, savedDrafts]
   );
+
+  const hasUnsavedChanges =
+    isDirty || priorityDirty;
 
   useEffect(() => {
     let cancelled = false;
@@ -390,7 +402,7 @@ export default function ShiftStructureSettingsClient({
     function warnBeforeUnload(
       event: BeforeUnloadEvent
     ) {
-      if (!isDirty) {
+      if (!hasUnsavedChanges) {
         return;
       }
 
@@ -408,7 +420,7 @@ export default function ShiftStructureSettingsClient({
         warnBeforeUnload
       );
     };
-  }, [isDirty]);
+  }, [hasUnsavedChanges]);
 
   function updateDraft(
     id: string,
@@ -625,7 +637,7 @@ export default function ShiftStructureSettingsClient({
           href={backHref}
           onClick={(event) => {
             if (
-              isDirty &&
+              hasUnsavedChanges &&
               !window.confirm(
                 "לצאת בלי לשמור את השינויים?"
               )
@@ -653,7 +665,7 @@ export default function ShiftStructureSettingsClient({
       </header>
 
       <nav
-        className="no-print rounded-2xl bg-white p-2 shadow-sm"
+        className="no-print flex flex-col gap-2 rounded-2xl bg-white p-2 shadow-sm sm:flex-row"
         aria-label="כרטיסיות הגדרות"
         role="tablist"
       >
@@ -661,11 +673,40 @@ export default function ShiftStructureSettingsClient({
           id="shift-structure-tab"
           type="button"
           role="tab"
-          aria-selected="true"
+          aria-selected={
+            activeTab === "shift-structure"
+          }
           aria-controls="shift-structure-panel"
-          className="min-h-11 w-full rounded-xl bg-slate-800 px-4 text-sm font-bold text-white shadow-sm sm:w-auto"
+          onClick={() =>
+            setActiveTab("shift-structure")
+          }
+          className={`min-h-11 w-full rounded-xl px-4 text-sm font-bold transition sm:w-auto ${
+            activeTab === "shift-structure"
+              ? "bg-slate-800 text-white shadow-sm"
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          }`}
         >
           מבנה המשמרות
+        </button>
+
+        <button
+          id="algorithm-priority-tab"
+          type="button"
+          role="tab"
+          aria-selected={
+            activeTab === "algorithm-priority"
+          }
+          aria-controls="algorithm-priority-panel"
+          onClick={() =>
+            setActiveTab("algorithm-priority")
+          }
+          className={`min-h-11 w-full rounded-xl px-4 text-sm font-bold transition sm:w-auto ${
+            activeTab === "algorithm-priority"
+              ? "bg-slate-800 text-white shadow-sm"
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          }`}
+        >
+          תעדוף האלגוריתם
         </button>
       </nav>
 
@@ -673,6 +714,9 @@ export default function ShiftStructureSettingsClient({
         id="shift-structure-panel"
         role="tabpanel"
         aria-labelledby="shift-structure-tab"
+        hidden={
+          activeTab !== "shift-structure"
+        }
         className="rounded-2xl bg-white p-4 shadow-sm sm:p-5"
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1003,6 +1047,14 @@ export default function ShiftStructureSettingsClient({
           </form>
         )}
       </section>
+
+      <AlgorithmPrioritySettings
+        weekStart={weekStart}
+        hidden={
+          activeTab !== "algorithm-priority"
+        }
+        onDirtyChange={setPriorityDirty}
+      />
     </main>
   );
 }

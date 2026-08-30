@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { isValidWeekStart } from "./dates";
-import { MAX_SHIFTS_PER_DAY, SHIFT_ID_PATTERN } from "./types";
+import {
+  ALGORITHM_PRIORITY_IDS,
+  MAX_SHIFTS_PER_DAY,
+  SHIFT_ID_PATTERN,
+} from "./types";
 
 export const employeeSchema = z.enum(["hila", "yaara", "omer"]);
 export const roleSchema = z.enum(["hila", "yaara", "omer", "admin"]);
@@ -14,6 +18,23 @@ export const shiftTypeSchema = z
   );
 export const preferenceValueSchema = z.enum(["want", "can", "prefer_not", "cannot"]);
 export const weekStatusSchema = z.enum(["open", "draft", "published"]);
+
+export const algorithmPrioritySchema = z.enum(
+  ALGORITHM_PRIORITY_IDS
+);
+
+export const algorithmPriorityOrderSchema = z
+  .array(algorithmPrioritySchema)
+  .length(
+    ALGORITHM_PRIORITY_IDS.length,
+    "יש לכלול את כל כללי התעדוף."
+  )
+  .refine(
+    (priorities) =>
+      new Set(priorities).size ===
+      ALGORITHM_PRIORITY_IDS.length,
+    "כל כלל תעדוף חייב להופיע פעם אחת בלבד."
+  );
 
 const payValueSchema = z
   .number()
@@ -99,6 +120,12 @@ export const weekStartSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "week_start must be an ISO date (YYYY-MM-DD)")
   .refine(isValidWeekStart, { message: "week_start חייב להיות תאריך אמיתי שחל ביום ראשון." });
+
+export const algorithmPrioritySettingsSchema = z.object({
+  weekStart: weekStartSchema,
+  priorities:
+    algorithmPriorityOrderSchema.nullable(),
+});
 
 export const loginSchema = z
   .object({

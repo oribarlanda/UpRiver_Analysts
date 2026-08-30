@@ -3,11 +3,14 @@ import { generateAssignments } from "../lib/scheduler";
 import { buildWeekSlots } from "../lib/weekSlots";
 import { shiftUnit } from "../lib/payUnits";
 import {
+  AlgorithmPriority,
+  DEFAULT_ALGORITHM_PRIORITIES,
   DEFAULT_SHIFT_DEFINITIONS,
   Employee,
   PreferenceValue,
   SHIFT_TYPES,
   ShiftDefinition,
+  ShiftSlot,
 } from "../lib/types";
 
 type PrefMap = Record<string, PreferenceValue>;
@@ -42,6 +45,24 @@ const FOUR_SHIFT_DEFINITIONS: ShiftDefinition[] = [
     durationMinutes: 120,
   },
 ];
+
+const WANT_FIRST_ORDER: AlgorithmPriority[] = [
+  "fair_wants",
+  ...DEFAULT_ALGORITHM_PRIORITIES.filter(
+    (priority) => priority !== "fair_wants"
+  ),
+];
+
+const THREE_SIMPLE_SLOTS: ShiftSlot[] = [
+  0,
+  1,
+  2,
+].map((dayIndex) => ({
+  dayIndex,
+  shiftType: "morning",
+  isPremium: false,
+  unit: 8,
+}));
 
 function makeLookup(map: PrefMap) {
   return (
@@ -139,6 +160,112 @@ describe("shiftUnit / pay units", () => {
 });
 
 describe("generateAssignments", () => {
+  it("keeps the existing result when the explicit default order is used", () => {
+    const prefs: PrefMap = {
+      "hila-0-morning": "want",
+      "yaara-1-morning": "prefer_not",
+    };
+
+    const implicit = generateAssignments(
+      THREE_SIMPLE_SLOTS,
+      makeLookup(prefs)
+    );
+    const explicit = generateAssignments(
+      THREE_SIMPLE_SLOTS,
+      makeLookup(prefs),
+      {
+        priorityOrder:
+          DEFAULT_ALGORITHM_PRIORITIES,
+      }
+    );
+
+    expect(explicit).toEqual(implicit);
+  });
+
+  it("changes a real scheduling decision when the priority order changes", () => {
+    const prefs: PrefMap = {
+      "hila-0-morning": "want",
+      "hila-1-morning": "want",
+      "hila-2-morning": "want",
+    };
+
+    const balanced = generateAssignments(
+      THREE_SIMPLE_SLOTS,
+      makeLookup(prefs)
+    );
+    const wantFirst = generateAssignments(
+      THREE_SIMPLE_SLOTS,
+      makeLookup(prefs),
+      {
+        priorityOrder: WANT_FIRST_ORDER,
+      }
+    );
+
+    expect(balanced.sums).toEqual({
+      hila: 8,
+      yaara: 8,
+      omer: 8,
+    });
+    expect(wantFirst.sums.hila).toBe(24);
+    expect(wantFirst.assignments).not.toEqual(
+      balanced.assignments
+    );
+  });
+
+  it("keeps cannot as a hard rule under every custom order", () => {
+    const reversed = [
+      ...DEFAULT_ALGORITHM_PRIORITIES,
+    ].reverse();
+    const prefs: PrefMap = {
+      "hila-0-morning": "cannot",
+      "hila-1-morning": "cannot",
+      "hila-2-morning": "cannot",
+    };
+
+    const result = generateAssignments(
+      THREE_SIMPLE_SLOTS,
+      makeLookup(prefs),
+      {
+        priorityOrder: reversed,
+      }
+    );
+
+    expect(
+      result.assignments.every(
+        (assignment) =>
+          assignment.employee !== "hila"
+      )
+    ).toBe(true);
+  });
+
+  it("keeps cumulative balance above a custom order on a balance week", () => {
+    const prefs: PrefMap = {
+      "yaara-0-morning": "want",
+      "yaara-1-morning": "want",
+      "yaara-2-morning": "want",
+    };
+
+    const result = generateAssignments(
+      THREE_SIMPLE_SLOTS,
+      makeLookup(prefs),
+      {
+        balanceWeek: true,
+        historicalSums: {
+          hila: 0,
+          yaara: 24,
+          omer: 24,
+        },
+        priorityOrder: WANT_FIRST_ORDER,
+      }
+    );
+
+    expect(result.sums).toEqual({
+      hila: 24,
+      yaara: 0,
+      omer: 0,
+    });
+  });
+
   it("never assigns a shift to an employee who marked it 'cannot'", () => {
     const slots = buildWeekSlots([5, 6]);
     const prefs: PrefMap = {

@@ -45,9 +45,10 @@ Next.js 15 (App Router) · TypeScript · Tailwind CSS · Supabase Postgres ·
    והריצי גם אותו. הוא מוסיף פונקציית Postgres (`replace_week_assignments`)
    שמבצעת את מחיקת/יצירת השיבוץ כפעולה אטומית אחת (טרנזקציה), כך שכשל
    באמצע לא משאיר את השבוע בלי שיבוץ בכלל.
-4. הריצי לפי הסדר גם את `0003_preference_confirmations.sql` ואת
-   `0004_shift_settings.sql`. המיגרציה הרביעית מוסיפה את הגדרות מבנה
-   המשמרות, שומרת צילום נפרד לכל שבוע ומעדכנת את פונקציות מסד הנתונים.
+4. הריצי לפי הסדר גם את `0003_preference_confirmations.sql`, את
+   `0004_shift_settings.sql` ואת `0005_algorithm_priority.sql`. המיגרציה
+   החמישית מוסיפה סדר תעדוף נפרד לכל שבוע ופונקציית שמירה שמונעת שינוי
+   לאחר פרסום.
 5. (אופציונלי) לנתוני דוגמה: פתחי את `supabase/seed.sql`, עדכני את התאריך
    `week_start` לתאריך יום ראשון עתידי אמיתי (פורמט `YYYY-MM-DD`), הדביקי
    בעורך SQL חדש והריצי.
@@ -153,7 +154,9 @@ weekly-shift-scheduler/
 ├── supabase/
 │   ├── migrations/
 │   │   ├── 0001_init.sql         # סכמת מסד הנתונים המלאה
-│   │   └── 0002_atomic_operations.sql  # פונקציית Postgres אטומית לשיבוץ
+│   │   ├── 0002_atomic_operations.sql  # פונקציית Postgres אטומית לשיבוץ
+│   │   ├── 0004_shift_settings.sql      # מבנה משמרות דינמי
+│   │   └── 0005_algorithm_priority.sql  # תעדוף אלגוריתם פר-שבוע
 │   └── seed.sql                  # נתוני דוגמה
 ├── src/
 │   ├── app/

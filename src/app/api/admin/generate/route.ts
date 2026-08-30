@@ -43,6 +43,7 @@ import {
 
 import {
   Employee,
+  getEffectiveAlgorithmPriorities,
   PreferenceValue,
   ShiftType,
 } from "@/lib/types";
@@ -261,6 +262,11 @@ export async function POST(
 
         historicalSums:
           balanceContext.previousTotals,
+
+        priorityOrder:
+          getEffectiveAlgorithmPriorities(
+            week.algorithm_priorities
+          ),
       }
     );
 

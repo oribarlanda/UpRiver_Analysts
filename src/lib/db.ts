@@ -3,6 +3,7 @@ import { getSupabaseServerClient } from "./supabaseServer";
 import { DEFAULT_PREMIUM_DAYS } from "./dates";
 import {
   AssignmentRow,
+  AlgorithmPriority,
   Employee,
   EMPLOYEES,
   PreferenceRow,
@@ -14,7 +15,10 @@ import {
   WeekRow,
   WeekStatus,
 } from "./types";
-import { shiftDefinitionsSchema } from "./zodSchemas";
+import {
+  algorithmPriorityOrderSchema,
+  shiftDefinitionsSchema,
+} from "./zodSchemas";
 import {
   AssignmentsReplaceRepo,
   WeekRepo,
@@ -29,12 +33,28 @@ function parseShiftDefinitions(value: unknown): ShiftDefinition[] {
   return shiftDefinitionsSchema.parse(value);
 }
 
+function parseAlgorithmPriorities(
+  value: unknown
+): AlgorithmPriority[] | null {
+  if (value == null) {
+    return null;
+  }
+
+  return algorithmPriorityOrderSchema.parse(
+    value
+  );
+}
+
 function parseWeekRow(value: unknown): WeekRow {
   const row = value as WeekRow;
 
   return {
     ...row,
     shift_definitions: parseShiftDefinitions(row.shift_definitions),
+    algorithm_priorities:
+      parseAlgorithmPriorities(
+        row.algorithm_priorities
+      ),
   };
 }
 
@@ -176,6 +196,35 @@ export async function updatePremiumDays(
     .eq("id", weekId);
 
   if (error) throw error;
+}
+
+/**
+ * Stores a custom priority order for one week, or null to restore the
+ * default. The database function locks the week and rejects published weeks.
+ */
+export async function updateWeekAlgorithmPriorities(
+  weekId: string,
+  priorities: AlgorithmPriority[] | null
+): Promise<AlgorithmPriority[] | null> {
+  const validated =
+    priorities === null
+      ? null
+      : algorithmPriorityOrderSchema.parse(
+          priorities
+        );
+  const supabase = getSupabaseServerClient();
+
+  const { data, error } = await supabase.rpc(
+    "set_week_algorithm_priorities",
+    {
+      p_week_id: weekId,
+      p_priorities: validated,
+    }
+  );
+
+  if (error) throw error;
+
+  return parseAlgorithmPriorities(data);
 }
 
 /**

@@ -20,6 +20,7 @@ function makeWeek(
     premium_days: [5, 6],
     shift_definitions:
       shiftDefinitions,
+    algorithm_priorities: null,
     published_at: null,
     created_at:
       "2026-08-30T00:00:00.000Z",

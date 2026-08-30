@@ -49,12 +49,92 @@ export type PreferenceValue = "want" | "can" | "prefer_not" | "cannot";
 
 export type WeekStatus = "open" | "draft" | "published";
 
+export const ALGORITHM_PRIORITY_IDS = [
+  "weekly_balance",
+  "premium_boundary_coverage",
+  "avoid_prefer_not",
+  "fair_wants",
+  "avoid_triple_shifts",
+  "midweek_type_coverage",
+  "avoid_quick_return",
+] as const;
+
+export type AlgorithmPriority =
+  (typeof ALGORITHM_PRIORITY_IDS)[number];
+
+export const DEFAULT_ALGORITHM_PRIORITIES: readonly AlgorithmPriority[] =
+  [...ALGORITHM_PRIORITY_IDS];
+
+export const ALGORITHM_PRIORITY_LABELS: Record<
+  AlgorithmPriority,
+  string
+> = {
+  weekly_balance: "איזון יחידות שכר שבועי",
+  premium_boundary_coverage:
+    "לפחות בוקר/ערב בסופ״ש או ביום פרמיה",
+  avoid_prefer_not: "להימנע מ־„מעדיפה שלא”",
+  fair_wants:
+    "„רוצה במיוחד” באופן הוגן לפי כמות מוחלטת",
+  avoid_triple_shifts:
+    "להימנע מ־3 משמרות באותו יום",
+  midweek_type_coverage:
+    "לפחות משמרת אחת מכל סוג באמצע השבוע",
+  avoid_quick_return:
+    "להימנע מסוף יום ואז תחילת היום הבא",
+};
+
+export function isAlgorithmPriorityOrder(
+  value: readonly string[]
+): value is readonly AlgorithmPriority[] {
+  return (
+    value.length ===
+      DEFAULT_ALGORITHM_PRIORITIES.length &&
+    new Set(value).size ===
+      DEFAULT_ALGORITHM_PRIORITIES.length &&
+    value.every((priority) =>
+      ALGORITHM_PRIORITY_IDS.includes(
+        priority as AlgorithmPriority
+      )
+    )
+  );
+}
+
+export function getEffectiveAlgorithmPriorities(
+  priorities:
+    | readonly AlgorithmPriority[]
+    | null
+    | undefined
+): AlgorithmPriority[] {
+  if (priorities == null) {
+    return [...DEFAULT_ALGORITHM_PRIORITIES];
+  }
+
+  if (!isAlgorithmPriorityOrder(priorities)) {
+    throw new Error(
+      "Invalid algorithm priority order."
+    );
+  }
+
+  return [...priorities];
+}
+
+export function isDefaultAlgorithmPriorityOrder(
+  priorities: readonly AlgorithmPriority[]
+): boolean {
+  return DEFAULT_ALGORITHM_PRIORITIES.every(
+    (priority, index) =>
+      priorities[index] === priority
+  );
+}
+
 export interface WeekRow {
   id: string;
   week_start: string; // ISO date (Sunday)
   status: WeekStatus;
   premium_days: number[]; // day_index[] (0=Sunday..6=Saturday)
   shift_definitions: ShiftDefinition[];
+  /** null means that the scheduler uses DEFAULT_ALGORITHM_PRIORITIES. */
+  algorithm_priorities: AlgorithmPriority[] | null;
   published_at: string | null;
   created_at: string;
 }

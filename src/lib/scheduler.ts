@@ -1,9 +1,11 @@
 // Scheduler rules version: monthly-balance-v7
 
 import {
+  AlgorithmPriority,
   Employee,
   EMPLOYEES,
   GeneratedAssignment,
+  getEffectiveAlgorithmPriorities,
   PreferenceValue,
   ScheduleResult,
   ScheduleWarning,
@@ -84,6 +86,12 @@ export interface SchedulerOptions {
   historicalSums?: Partial<
     Record<Employee, number>
   >;
+
+  /**
+   * Per-week lexicographic ordering of the seven configurable soft goals.
+   * "cannot" is not part of this list because it is always a hard rule.
+   */
+  priorityOrder?: readonly AlgorithmPriority[];
 }
 
 /**
@@ -475,6 +483,107 @@ function compareWantFairness(
   return 0;
 }
 
+interface AlgorithmPriorityMetrics {
+  withinHalfHour: boolean;
+  weeklyGap: number;
+  weeklyVariance: number;
+  weekendCoverage: number;
+  preferNotCount: number;
+  wantTuple: [number, number, number];
+  tripleCount: number;
+  midweekCoverage: number;
+  restViolationCount: number;
+}
+
+/** Positive means candidate is better, negative means existing is better. */
+function compareAlgorithmPriority(
+  priority: AlgorithmPriority,
+  candidate: AlgorithmPriorityMetrics,
+  existing: AlgorithmPriorityMetrics
+): number {
+  switch (priority) {
+    case "weekly_balance":
+      if (
+        candidate.withinHalfHour !==
+        existing.withinHalfHour
+      ) {
+        return candidate.withinHalfHour
+          ? 1
+          : -1;
+      }
+
+      if (
+        !candidate.withinHalfHour &&
+        candidate.weeklyGap !==
+          existing.weeklyGap
+      ) {
+        return (
+          existing.weeklyGap -
+          candidate.weeklyGap
+        );
+      }
+
+      return 0;
+
+    case "premium_boundary_coverage":
+      return (
+        candidate.weekendCoverage -
+        existing.weekendCoverage
+      );
+
+    case "avoid_prefer_not":
+      return (
+        existing.preferNotCount -
+        candidate.preferNotCount
+      );
+
+    case "fair_wants":
+      return compareWantFairness(
+        candidate.wantTuple,
+        existing.wantTuple
+      );
+
+    case "avoid_triple_shifts":
+      return (
+        existing.tripleCount -
+        candidate.tripleCount
+      );
+
+    case "midweek_type_coverage":
+      return (
+        candidate.midweekCoverage -
+        existing.midweekCoverage
+      );
+
+    case "avoid_quick_return":
+      return (
+        existing.restViolationCount -
+        candidate.restViolationCount
+      );
+  }
+}
+
+function compareByPriorityOrder(
+  candidate: AlgorithmPriorityMetrics,
+  existing: AlgorithmPriorityMetrics,
+  priorityOrder: readonly AlgorithmPriority[]
+): number {
+  for (const priority of priorityOrder) {
+    const comparison =
+      compareAlgorithmPriority(
+        priority,
+        candidate,
+        existing
+      );
+
+    if (comparison !== 0) {
+      return comparison;
+    }
+  }
+
+  return 0;
+}
+
 function buildDayOptions(
   day: DayGroup,
   slots: ShiftSlot[],
@@ -729,32 +838,45 @@ function buildDayOptions(
  */
 function isBetterPath(
   candidate: DPEntry,
-  existing: DPEntry
+  existing: DPEntry,
+  priorityOrder: readonly AlgorithmPriority[]
 ): boolean {
-  if (
-    candidate.preferNotCount !==
-    existing.preferNotCount
-  ) {
-    return (
-      candidate.preferNotCount <
-      existing.preferNotCount
-    );
+  for (const priority of priorityOrder) {
+    if (
+      priority === "avoid_prefer_not" &&
+      candidate.preferNotCount !==
+        existing.preferNotCount
+    ) {
+      return (
+        candidate.preferNotCount <
+        existing.preferNotCount
+      );
+    }
+
+    if (
+      priority === "avoid_triple_shifts" &&
+      candidate.tripleCount !==
+        existing.tripleCount
+    ) {
+      return (
+        candidate.tripleCount <
+        existing.tripleCount
+      );
+    }
+
+    if (
+      priority === "avoid_quick_return" &&
+      candidate.restViolationCount !==
+        existing.restViolationCount
+    ) {
+      return (
+        candidate.restViolationCount <
+        existing.restViolationCount
+      );
+    }
   }
 
-  if (
-    candidate.tripleCount !==
-    existing.tripleCount
-  ) {
-    return (
-      candidate.tripleCount <
-      existing.tripleCount
-    );
-  }
-
-  return (
-    candidate.restViolationCount <
-    existing.restViolationCount
-  );
+  return false;
 }
 
 function gapOf(
@@ -817,6 +939,10 @@ export function generateAssignments(
   options:
     SchedulerOptions = {}
 ): ScheduleResult {
+  const priorityOrder =
+    getEffectiveAlgorithmPriorities(
+      options.priorityOrder
+    );
   const shiftTypes = orderedShiftTypes(slots);
 
   if (shiftTypes.length === 0) {
@@ -1186,7 +1312,8 @@ export function generateAssignments(
           !existing ||
           isBetterPath(
             candidate,
-            existing
+            existing,
+            priorityOrder
           )
         ) {
           nextDp.set(
@@ -1380,265 +1507,100 @@ export function generateAssignments(
         cumulativeOmer
       );
 
-    let better =
-      bestEntry ===
-      null;
+    const candidateMetrics:
+      AlgorithmPriorityMetrics = {
+      withinHalfHour,
+      weeklyGap,
+      weeklyVariance,
+      weekendCoverage,
+      preferNotCount:
+        entry.preferNotCount,
+      wantTuple,
+      tripleCount:
+        entry.tripleCount,
+      midweekCoverage,
+      restViolationCount:
+        entry.restViolationCount,
+    };
 
-    if (
-      bestEntry !==
-        null &&
-      options.balanceWeek
-    ) {
+    let better = bestEntry === null;
+
+    if (bestEntry !== null) {
+      const bestMetrics:
+        AlgorithmPriorityMetrics = {
+        withinHalfHour:
+          bestWithinHalfHour,
+        weeklyGap:
+          bestWeeklyGap,
+        weeklyVariance:
+          bestWeeklyVariance,
+        weekendCoverage:
+          bestWeekendCoverage,
+        preferNotCount:
+          bestEntry.preferNotCount,
+        wantTuple:
+          bestWantTuple,
+        tripleCount:
+          bestEntry.tripleCount,
+        midweekCoverage:
+          bestMidweekCoverage,
+        restViolationCount:
+          bestEntry.restViolationCount,
+      };
+
+      let comparison = 0;
+
       /**
-       * BALANCE WEEK
-       *
-       * 1. cannot — hard rule, already enforced.
-       * 2. cumulative balance of the whole balance period.
-       * 3. balance of the current week.
-       * 4. weekend/premium morning-evening coverage.
-       * 5. avoid prefer_not.
-       * 6. fair absolute "want" fulfilment.
-       * 7. avoid 3 shifts in one day.
-       * 8. midweek type coverage.
-       * 9. avoid evening -> next morning.
+       * On a balance week the cumulative period balance is immutable and
+       * remains above every manager-configurable weekly priority.
        */
-
       if (
+        options.balanceWeek &&
         cumulativeGap !==
-        bestCumulativeGap
+          bestCumulativeGap
       ) {
-        better =
-          cumulativeGap <
-          bestCumulativeGap;
-      }
-
-      /**
-       * Same cumulative max-min gap:
-       * use variance as part of the same cumulative-balance priority.
-       */
-      else if (
+        comparison =
+          bestCumulativeGap -
+          cumulativeGap;
+      } else if (
+        options.balanceWeek &&
         cumulativeVariance !==
-        bestCumulativeVariance
+          bestCumulativeVariance
       ) {
-        better =
-          cumulativeVariance <
-          bestCumulativeVariance;
+        comparison =
+          bestCumulativeVariance -
+          cumulativeVariance;
       }
 
-      else if (
-        withinHalfHour !==
-        bestWithinHalfHour
-      ) {
-        better =
-          withinHalfHour;
-      }
-
-      else if (
-        !withinHalfHour &&
-        weeklyGap !==
-          bestWeeklyGap
-      ) {
-        better =
-          weeklyGap <
-          bestWeeklyGap;
-      }
-
-      else if (
-        weekendCoverage !==
-        bestWeekendCoverage
-      ) {
-        better =
-          weekendCoverage >
-          bestWeekendCoverage;
-      }
-
-      else if (
-        entry.preferNotCount !==
-        bestEntry.preferNotCount
-      ) {
-        better =
-          entry.preferNotCount <
-          bestEntry.preferNotCount;
-      }
-
-      else {
-        const wantComparison =
-          compareWantFairness(
-            wantTuple,
-            bestWantTuple
+      if (comparison === 0) {
+        comparison =
+          compareByPriorityOrder(
+            candidateMetrics,
+            bestMetrics,
+            priorityOrder
           );
-
-        if (
-          wantComparison !==
-          0
-        ) {
-          better =
-            wantComparison >
-            0;
-        }
-
-        else if (
-          entry.tripleCount !==
-          bestEntry.tripleCount
-        ) {
-          better =
-            entry.tripleCount <
-            bestEntry.tripleCount;
-        }
-
-        else if (
-          midweekCoverage !==
-          bestMidweekCoverage
-        ) {
-          better =
-            midweekCoverage >
-            bestMidweekCoverage;
-        }
-
-        else if (
-          entry.restViolationCount !==
-          bestEntry.restViolationCount
-        ) {
-          better =
-            entry.restViolationCount <
-            bestEntry.restViolationCount;
-        }
-
-        /**
-         * If all requested priorities tie,
-         * prefer the smaller weekly gap.
-         */
-        else if (
-          weeklyGap !==
-          bestWeeklyGap
-        ) {
-          better =
-            weeklyGap <
-            bestWeeklyGap;
-        }
-
-        else if (
-          weeklyVariance !==
-          bestWeeklyVariance
-        ) {
-          better =
-            weeklyVariance <
-            bestWeeklyVariance;
-        }
       }
-    }
 
-    else if (
-      bestEntry !==
-      null
-    ) {
-      /**
-       * NORMAL WEEK
-       *
-       * Existing scheduler priorities remain unchanged.
-       */
+      /** Deterministic quality tie-breakers after all selected goals tie. */
+      if (
+        comparison === 0 &&
+        weeklyGap !== bestWeeklyGap
+      ) {
+        comparison =
+          bestWeeklyGap - weeklyGap;
+      }
 
       if (
-        withinHalfHour !==
-        bestWithinHalfHour
-      ) {
-        better =
-          withinHalfHour;
-      }
-
-      else if (
-        !withinHalfHour &&
-        weeklyGap !==
-          bestWeeklyGap
-      ) {
-        better =
-          weeklyGap <
-          bestWeeklyGap;
-      }
-
-      else if (
-        weekendCoverage !==
-        bestWeekendCoverage
-      ) {
-        better =
-          weekendCoverage >
-          bestWeekendCoverage;
-      }
-
-      else if (
-        entry.preferNotCount !==
-        bestEntry.preferNotCount
-      ) {
-        better =
-          entry.preferNotCount <
-          bestEntry.preferNotCount;
-      }
-
-      else {
-        const wantComparison =
-          compareWantFairness(
-            wantTuple,
-            bestWantTuple
-          );
-
-        if (
-          wantComparison !==
-          0
-        ) {
-          better =
-            wantComparison >
-            0;
-        }
-
-        else if (
-          entry.tripleCount !==
-          bestEntry.tripleCount
-        ) {
-          better =
-            entry.tripleCount <
-            bestEntry.tripleCount;
-        }
-
-        else if (
-          midweekCoverage !==
-          bestMidweekCoverage
-        ) {
-          better =
-            midweekCoverage >
-            bestMidweekCoverage;
-        }
-
-        else if (
-          entry.restViolationCount !==
-          bestEntry.restViolationCount
-        ) {
-          better =
-            entry.restViolationCount <
-            bestEntry.restViolationCount;
-        }
-
-        /**
-         * Both schedules already satisfy <= 0.5 pay-hour gap
-         * and all higher priorities tie.
-         */
-        else if (
-          weeklyGap !==
-          bestWeeklyGap
-        ) {
-          better =
-            weeklyGap <
-            bestWeeklyGap;
-        }
-
-        else if (
-          weeklyVariance !==
+        comparison === 0 &&
+        weeklyVariance !==
           bestWeeklyVariance
-        ) {
-          better =
-            weeklyVariance <
-            bestWeeklyVariance;
-        }
+      ) {
+        comparison =
+          bestWeeklyVariance -
+          weeklyVariance;
       }
+
+      better = comparison > 0;
     }
 
     if (

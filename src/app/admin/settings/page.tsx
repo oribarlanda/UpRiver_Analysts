@@ -43,6 +43,7 @@ export default async function AdminSettingsPage({
   return (
     <ShiftStructureSettingsClient
       backHref={`/admin/${returnWeekStart}`}
+      weekStart={returnWeekStart}
     />
   );
 }
