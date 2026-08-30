@@ -33,7 +33,6 @@ import {
 } from "@/lib/completeness";
 import {
   DAY_LABELS,
-  DEFAULT_SHIFT_DEFINITIONS,
   Employee,
   EMPLOYEES,
   EMPLOYEE_LABELS,
@@ -43,6 +42,7 @@ import {
   ShiftType,
   WeekRow,
 } from "@/lib/types";
+import { resolveAdminWeekPayload } from "./adminWeekModel";
 
 const EMPLOYEE_INITIALS: Record<Employee, string> = {
   hila: "ה",
@@ -118,10 +118,7 @@ export default function AdminWeekClient({
 
   const shiftDefinitions: ShiftDefinition[] =
     useMemo(
-      () =>
-        week?.shift_definitions?.length
-          ? week.shift_definitions
-          : DEFAULT_SHIFT_DEFINITIONS,
+      () => week?.shift_definitions ?? [],
       [week?.shift_definitions]
     );
 
@@ -509,7 +506,9 @@ export default function AdminWeekClient({
   function loadData() {
     setLoading(true);
 
-    fetch(`/api/weeks/${weekStart}`)
+    fetch(`/api/weeks/${weekStart}`, {
+      cache: "no-store",
+    })
       .then((response) =>
         response.json()
       )
@@ -519,13 +518,7 @@ export default function AdminWeekClient({
           return;
         }
 
-        setWeek({
-          ...data.week,
-          shift_definitions:
-            data.shiftDefinitions ??
-            data.week.shift_definitions ??
-            DEFAULT_SHIFT_DEFINITIONS,
-        });
+        setWeek(resolveAdminWeekPayload(data));
 
         prefQueueRef.current!.reset();
         assignQueueRef.current!.reset();
