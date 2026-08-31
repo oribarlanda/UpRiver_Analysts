@@ -12,7 +12,7 @@ import WeekNav from "@/components/WeekNav";
 import SaveIndicator, {
   SaveState,
 } from "@/components/SaveIndicator";
-import AdminPreferencesCards from "@/components/AdminPreferencesCards";
+import AdminPreferencesTable from "@/components/AdminPreferencesTable";
 import PublishedScheduleGrid from "@/components/PublishedScheduleGrid";
 import ConfirmModal from "@/components/ConfirmModal";
 import { buildWeekSlots } from "@/lib/weekSlots";
@@ -77,24 +77,6 @@ function emptyConfirmationMap(): ConfirmationMap {
     yaara: null,
     omer: null,
   };
-}
-
-function formatConfirmationTime(value: string): string {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("he-IL", {
-    timeZone: "Asia/Jerusalem",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
 }
 
 export default function AdminWeekClient({
@@ -1120,7 +1102,7 @@ export default function AdminWeekClient({
         </div>
       )}
 
-      <section className="no-print space-y-3 rounded-2xl bg-white p-4 shadow-sm">
+      <section className="no-print rounded-2xl bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm text-slate-600">
             סטטוס שבוע
@@ -1134,125 +1116,6 @@ export default function AdminWeekClient({
                 : "פורסם"}
           </strong>
         </div>
-
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          {EMPLOYEES.map(
-            (employee) => {
-              const confirmation =
-                confirmations[
-                  employee
-                ];
-
-              if (!confirmationsLoaded) {
-                return (
-                  <div
-                    key={employee}
-                    className="rounded-xl border border-slate-200 bg-slate-50 p-3"
-                  >
-                    <div className="font-bold text-slate-700">
-                      {
-                        EMPLOYEE_LABELS[
-                          employee
-                        ]
-                      }
-                    </div>
-
-                    <div className="mt-1 text-xs text-slate-400">
-                      טוען סטטוס...
-                    </div>
-                  </div>
-                );
-              }
-
-              if (!confirmation) {
-                return (
-                  <div
-                    key={employee}
-                    className="rounded-xl border border-amber-200 bg-amber-50 p-3"
-                  >
-                    <div className="font-bold text-slate-800">
-                      {
-                        EMPLOYEE_LABELS[
-                          employee
-                        ]
-                      }
-                    </div>
-
-                    <div className="mt-1 text-xs font-semibold text-amber-800">
-                      ⏳ טרם אישרה
-                      העדפות
-                    </div>
-                  </div>
-                );
-              }
-
-              if (
-                confirmation.changed_since_confirmation
-              ) {
-                return (
-                  <div
-                    key={employee}
-                    className="rounded-xl border border-amber-300 bg-amber-50 p-3"
-                  >
-                    <div className="font-bold text-slate-800">
-                      {
-                        EMPLOYEE_LABELS[
-                          employee
-                        ]
-                      }
-                    </div>
-
-                    <div className="mt-1 text-xs font-bold text-amber-800">
-                      ⚠️ שונו מאז
-                      האישור
-                    </div>
-
-                    <div className="mt-1 text-[11px] leading-4 text-amber-700">
-                      אושר לאחרונה:{" "}
-                      {formatConfirmationTime(
-                        confirmation.confirmed_at
-                      )}
-                    </div>
-                  </div>
-                );
-              }
-
-              return (
-                <div
-                  key={employee}
-                  className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"
-                >
-                  <div className="font-bold text-slate-800">
-                    {
-                      EMPLOYEE_LABELS[
-                        employee
-                      ]
-                    }
-                  </div>
-
-                  <div className="mt-1 text-xs font-bold text-emerald-800">
-                    ✓ העדפות
-                    אושרו
-                  </div>
-
-                  <div className="mt-1 text-[11px] leading-4 text-emerald-700">
-                    אושר:{" "}
-                    {formatConfirmationTime(
-                      confirmation.confirmed_at
-                    )}
-                  </div>
-                </div>
-              );
-            }
-          )}
-        </div>
-
-        <p className="text-[11px] leading-5 text-slate-400">
-          האישור הוא אינדיקציה בלבד
-          ואינו נועל את ההעדפות.
-          יצירת השיבוץ נשארת זמינה
-          גם אם עובדת עדיין לא אישרה.
-        </p>
       </section>
 
       {/* Premium days */}
@@ -1296,15 +1159,6 @@ export default function AdminWeekClient({
           )}
         </div>
       </div>
-
-      {/* Preferences overview */}
-      <AdminPreferencesCards
-        weekStart={weekStart}
-        weekStatus={week.status}
-        shiftDefinitions={shiftDefinitions}
-        preferences={prefMap}
-        onPreferenceClick={handleEditPreference}
-      />
 
       {/* Actions */}
       <div className="no-print flex flex-wrap gap-2">
@@ -1368,23 +1222,6 @@ export default function AdminWeekClient({
           </button>
         )}
 
-        <button
-          type="button"
-          onClick={handleExportCsv}
-          className="rounded-xl bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm"
-        >
-          ייצוא CSV
-        </button>
-
-        <button
-          type="button"
-          onClick={() =>
-            window.print()
-          }
-          className="rounded-xl bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm"
-        >
-          הדפסה / PDF
-        </button>
       </div>
 
       {blockedSlots.length > 0 && (
@@ -1651,8 +1488,39 @@ export default function AdminWeekClient({
         )
       </div>
 
+      <div className="no-print flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={handleExportCsv}
+          className="rounded-xl bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm"
+        >
+          ייצוא CSV
+        </button>
+
+        <button
+          type="button"
+          onClick={() =>
+            window.print()
+          }
+          className="rounded-xl bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm"
+        >
+          הדפסה / PDF
+        </button>
+      </div>
+
       <SaveIndicator
         state={saveState}
+      />
+
+      {/* Preferences overview — intentionally last in the page flow. */}
+      <AdminPreferencesTable
+        weekStart={weekStart}
+        weekStatus={week.status}
+        shiftDefinitions={shiftDefinitions}
+        preferences={prefMap}
+        confirmations={confirmations}
+        confirmationsLoaded={confirmationsLoaded}
+        onPreferenceClick={handleEditPreference}
       />
 
       <ConfirmModal
