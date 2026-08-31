@@ -7,6 +7,7 @@ import {
   isAdmin,
 } from "@/lib/auth";
 import { getMonthlyBalanceContext } from "@/lib/monthlyBalanceServer";
+import { getOrCreateWeek } from "@/lib/db";
 
 const WEEK_START_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -31,7 +32,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const context = await getMonthlyBalanceContext(weekStart);
+    const week = await getOrCreateWeek(weekStart);
+    const context = await getMonthlyBalanceContext(
+      weekStart,
+      week.balance_week_enabled_override
+    );
 
     if (isAdmin(session.role)) {
       return NextResponse.json(context);
@@ -39,6 +44,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       isBalanceWeek: context.isBalanceWeek,
+      balanceWeekEnabled:
+        context.balanceWeekEnabled,
       balanceMonthLabel: context.balanceMonthLabel,
       hasCurrentAssignments: context.hasCurrentAssignments,
       currentWeekGapUnits: context.currentWeekGapUnits,

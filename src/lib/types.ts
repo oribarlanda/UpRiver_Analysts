@@ -135,6 +135,8 @@ export interface WeekRow {
   shift_definitions: ShiftDefinition[];
   /** null means that the scheduler uses DEFAULT_ALGORITHM_PRIORITIES. */
   algorithm_priorities: AlgorithmPriority[] | null;
+  /** null preserves the legacy default: detected balance weeks are enabled. */
+  balance_week_enabled_override: boolean | null;
   published_at: string | null;
   created_at: string;
 }

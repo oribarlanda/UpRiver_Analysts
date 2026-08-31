@@ -42,6 +42,10 @@ import {
 } from "@/lib/monthlyBalanceServer";
 
 import {
+  getEffectiveBalanceWeekEnabled,
+} from "@/lib/monthlyBalance";
+
+import {
   Employee,
   getEffectiveAlgorithmPriorities,
   PreferenceValue,
@@ -249,7 +253,14 @@ export async function POST(
   const balanceContext =
     await getMonthlyBalanceContext(
       parsed.data
-        .weekStart
+        .weekStart,
+      week.balance_week_enabled_override
+    );
+
+  const balanceWeekEnabled =
+    getEffectiveBalanceWeekEnabled(
+      balanceContext.isBalanceWeek,
+      week.balance_week_enabled_override
     );
 
   const result =
@@ -258,7 +269,7 @@ export async function POST(
       lookup,
       {
         balanceWeek:
-          balanceContext.isBalanceWeek,
+          balanceWeekEnabled,
 
         historicalSums:
           balanceContext.previousTotals,
@@ -366,7 +377,7 @@ export async function POST(
         result.warnings,
 
       monthlyBalance:
-        balanceContext.isBalanceWeek
+        balanceWeekEnabled
           ? {
               isBalanceWeek:
                 true,

@@ -127,6 +127,11 @@ export const algorithmPrioritySettingsSchema = z.object({
     algorithmPriorityOrderSchema.nullable(),
 });
 
+export const balanceWeekSettingsSchema = z.object({
+  weekStart: weekStartSchema,
+  enabled: z.boolean(),
+});
+
 export const loginSchema = z
   .object({
     role: roleSchema,

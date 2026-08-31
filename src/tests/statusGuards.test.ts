@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   StatusError,
   assertAlgorithmPrioritiesEditable,
+  assertBalanceWeekEditable,
   assertAssignmentsEditable,
   assertGeneratable,
   assertPremiumDaysEditable,
@@ -50,6 +51,23 @@ describe("assertAlgorithmPrioritiesEditable", () => {
       assertAlgorithmPrioritiesEditable(
         "published"
       )
+    ).toThrow(StatusError);
+  });
+});
+
+describe("assertBalanceWeekEditable", () => {
+  it("allows changes when open or draft", () => {
+    expect(() =>
+      assertBalanceWeekEditable("open")
+    ).not.toThrow();
+    expect(() =>
+      assertBalanceWeekEditable("draft")
+    ).not.toThrow();
+  });
+
+  it("blocks changes once published", () => {
+    expect(() =>
+      assertBalanceWeekEditable("published")
     ).toThrow(StatusError);
   });
 });

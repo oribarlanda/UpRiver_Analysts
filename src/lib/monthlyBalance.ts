@@ -12,6 +12,19 @@ export interface BalanceWeekInfo {
   priorWeekStarts: string[];
 }
 
+/**
+ * A stored value only overrides whether a week detected by the existing
+ * calendar rule uses monthly balancing. Ordinary weeks can never become
+ * balance weeks through this setting, and null keeps the legacy enabled
+ * default for existing rows.
+ */
+export function getEffectiveBalanceWeekEnabled(
+  isBalanceWeek: boolean,
+  override: boolean | null | undefined
+): boolean {
+  return isBalanceWeek && override !== false;
+}
+
 const HEBREW_MONTHS = [
   "ינואר",
   "פברואר",

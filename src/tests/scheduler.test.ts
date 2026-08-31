@@ -266,6 +266,89 @@ describe("generateAssignments", () => {
     });
   });
 
+  it("behaves exactly like a regular week when monthly balance is disabled", () => {
+    const prefs: PrefMap = {
+      "yaara-0-morning": "want",
+      "yaara-1-morning": "want",
+      "yaara-2-morning": "want",
+    };
+    const historicalSums = {
+      hila: 0,
+      yaara: 24,
+      omer: 24,
+    };
+
+    const regular = generateAssignments(
+      THREE_SIMPLE_SLOTS,
+      makeLookup(prefs)
+    );
+    const disabled = generateAssignments(
+      THREE_SIMPLE_SLOTS,
+      makeLookup(prefs),
+      {
+        balanceWeek: false,
+        historicalSums,
+      }
+    );
+
+    expect(disabled).toEqual(regular);
+  });
+
+  it("restores cumulative balance when monthly balance is enabled again", () => {
+    const prefs: PrefMap = {
+      "yaara-0-morning": "want",
+      "yaara-1-morning": "want",
+      "yaara-2-morning": "want",
+    };
+
+    const enabled = generateAssignments(
+      THREE_SIMPLE_SLOTS,
+      makeLookup(prefs),
+      {
+        balanceWeek: true,
+        historicalSums: {
+          hila: 0,
+          yaara: 24,
+          omer: 24,
+        },
+      }
+    );
+
+    expect(enabled.sums).toEqual({
+      hila: 24,
+      yaara: 0,
+      omer: 0,
+    });
+  });
+
+  it("keeps the custom weekly priority active when monthly balance is disabled", () => {
+    const prefs: PrefMap = {
+      "yaara-0-morning": "want",
+      "yaara-1-morning": "want",
+      "yaara-2-morning": "want",
+    };
+
+    const result = generateAssignments(
+      THREE_SIMPLE_SLOTS,
+      makeLookup(prefs),
+      {
+        balanceWeek: false,
+        historicalSums: {
+          hila: 0,
+          yaara: 24,
+          omer: 24,
+        },
+        priorityOrder: WANT_FIRST_ORDER,
+      }
+    );
+
+    expect(result.sums).toEqual({
+      hila: 0,
+      yaara: 24,
+      omer: 0,
+    });
+  });
+
   it("never assigns a shift to an employee who marked it 'cannot'", () => {
     const slots = buildWeekSlots([5, 6]);
     const prefs: PrefMap = {

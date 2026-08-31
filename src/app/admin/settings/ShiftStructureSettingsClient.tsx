@@ -12,6 +12,7 @@ import {
   ShiftDefinition,
 } from "@/lib/types";
 import AlgorithmPrioritySettings from "./AlgorithmPrioritySettings";
+import BalanceWeekSettings from "./BalanceWeekSettings";
 
 interface ShiftDraft {
   id: string;
@@ -289,9 +290,13 @@ export default function ShiftStructureSettingsClient({
 }) {
   const [activeTab, setActiveTab] =
     useState<
-      "shift-structure" | "algorithm-priority"
+      | "shift-structure"
+      | "algorithm-priority"
+      | "balance-week"
     >("shift-structure");
   const [priorityDirty, setPriorityDirty] =
+    useState(false);
+  const [balanceWeekDirty, setBalanceWeekDirty] =
     useState(false);
   const [drafts, setDrafts] =
     useState<ShiftDraft[]>([]);
@@ -325,7 +330,7 @@ export default function ShiftStructureSettingsClient({
   );
 
   const hasUnsavedChanges =
-    isDirty || priorityDirty;
+    isDirty || priorityDirty || balanceWeekDirty;
 
   useEffect(() => {
     let cancelled = false;
@@ -708,6 +713,22 @@ export default function ShiftStructureSettingsClient({
         >
           תעדוף האלגוריתם
         </button>
+
+        <button
+          id="balance-week-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "balance-week"}
+          aria-controls="balance-week-panel"
+          onClick={() => setActiveTab("balance-week")}
+          className={`min-h-11 w-full rounded-xl px-4 text-sm font-bold transition sm:w-auto ${
+            activeTab === "balance-week"
+              ? "bg-slate-800 text-white shadow-sm"
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          }`}
+        >
+          שבוע מאזן
+        </button>
       </nav>
 
       <section
@@ -1054,6 +1075,12 @@ export default function ShiftStructureSettingsClient({
           activeTab !== "algorithm-priority"
         }
         onDirtyChange={setPriorityDirty}
+      />
+
+      <BalanceWeekSettings
+        weekStart={weekStart}
+        hidden={activeTab !== "balance-week"}
+        onDirtyChange={setBalanceWeekDirty}
       />
     </main>
   );

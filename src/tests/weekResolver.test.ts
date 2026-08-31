@@ -40,6 +40,7 @@ function makeFakeRepo() {
             ...shift,
           })),
           algorithm_priorities: null,
+          balance_week_enabled_override: null,
           published_at: null,
           created_at: new Date().toISOString(),
         });

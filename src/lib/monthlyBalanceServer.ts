@@ -10,6 +10,7 @@ import {
   BalanceWeekInfo,
   EmployeeTotals,
   emptyEmployeeTotals,
+  getEffectiveBalanceWeekEnabled,
   getBalanceWeekInfo,
 } from "@/lib/monthlyBalance";
 
@@ -29,6 +30,8 @@ interface AssignmentDbRow {
 }
 
 export interface MonthlyBalanceContext extends BalanceWeekInfo {
+  balanceWeekEnabledOverride: boolean | null;
+  balanceWeekEnabled: boolean;
   countedPublishedWeekStarts: string[];
   previousTotals: EmployeeTotals;
   currentWeekSums: EmployeeTotals;
@@ -89,7 +92,8 @@ function sumAssignmentsForWeek(
 }
 
 export async function getMonthlyBalanceContext(
-  weekStart: string
+  weekStart: string,
+  explicitOverride?: boolean | null
 ): Promise<MonthlyBalanceContext> {
   const info = getBalanceWeekInfo(weekStart);
 
@@ -98,6 +102,9 @@ export async function getMonthlyBalanceContext(
 
     return {
       ...info,
+      balanceWeekEnabledOverride:
+        explicitOverride ?? null,
+      balanceWeekEnabled: false,
       countedPublishedWeekStarts: [],
       previousTotals: { ...empty },
       currentWeekSums: { ...empty },
@@ -112,7 +119,9 @@ export async function getMonthlyBalanceContext(
 
   const { data: weekData, error: weekError } = await supabase
     .from("weeks")
-    .select("id, week_start, status, premium_days, shift_definitions")
+    .select(
+      "id, week_start, status, premium_days, shift_definitions"
+    )
     .in("week_start", info.periodWeekStarts);
 
   if (weekError) {
@@ -176,6 +185,16 @@ export async function getMonthlyBalanceContext(
     (candidate) => candidate.week_start === weekStart
   );
 
+  const balanceWeekEnabledOverride =
+    explicitOverride !== undefined
+      ? explicitOverride
+      : null;
+  const balanceWeekEnabled =
+    getEffectiveBalanceWeekEnabled(
+      info.isBalanceWeek,
+      balanceWeekEnabledOverride
+    );
+
   let currentWeekSums = emptyEmployeeTotals();
   let hasCurrentAssignments = false;
 
@@ -200,6 +219,8 @@ export async function getMonthlyBalanceContext(
 
   return {
     ...info,
+    balanceWeekEnabledOverride,
+    balanceWeekEnabled,
     countedPublishedWeekStarts,
     previousTotals,
     currentWeekSums,

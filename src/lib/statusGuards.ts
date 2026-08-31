@@ -37,6 +37,18 @@ export function assertAlgorithmPrioritiesEditable(
   }
 }
 
+/** Monthly-balance settings follow the same reopen flow as other per-week
+ * generation settings: open/draft are editable, published is locked. */
+export function assertBalanceWeekEditable(
+  status: WeekStatus
+): void {
+  if (status === "published") {
+    throw new StatusError(
+      "לא ניתן לשנות שבוע מאזן לאחר פרסום השבוע. יש לפתוח מחדש."
+    );
+  }
+}
+
 /** The DP schedule may be (re)generated any time except after publication. */
 export function assertGeneratable(status: WeekStatus): void {
   if (status === "published") {

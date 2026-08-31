@@ -55,6 +55,11 @@ function parseWeekRow(value: unknown): WeekRow {
       parseAlgorithmPriorities(
         row.algorithm_priorities
       ),
+    balance_week_enabled_override:
+      typeof row.balance_week_enabled_override ===
+      "boolean"
+        ? row.balance_week_enabled_override
+        : null,
   };
 }
 
@@ -225,6 +230,33 @@ export async function updateWeekAlgorithmPriorities(
   if (error) throw error;
 
   return parseAlgorithmPriorities(data);
+}
+
+/** Stores the effective monthly-balance choice for one detected balance
+ * week. The database function locks the row and rejects published weeks. */
+export async function updateWeekBalanceEnabled(
+  weekId: string,
+  enabled: boolean
+): Promise<boolean> {
+  const supabase = getSupabaseServerClient();
+
+  const { data, error } = await supabase.rpc(
+    "set_week_balance_enabled",
+    {
+      p_week_id: weekId,
+      p_enabled: enabled,
+    }
+  );
+
+  if (error) throw error;
+
+  if (typeof data !== "boolean") {
+    throw new Error(
+      "Invalid balance-week setting returned by the database."
+    );
+  }
+
+  return data;
 }
 
 /**

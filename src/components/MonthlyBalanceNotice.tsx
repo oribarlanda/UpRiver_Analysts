@@ -20,6 +20,7 @@ interface EmployeeTotals {
 
 interface MonthlyBalanceData {
   isBalanceWeek: boolean;
+  balanceWeekEnabled: boolean;
   balanceMonthLabel: string | null;
   periodWeekStarts?: string[];
   countedPublishedWeekStarts?: string[];
@@ -116,7 +117,10 @@ export default function MonthlyBalanceNotice({
     };
   }, [weekStart]);
 
-  if (!data?.isBalanceWeek) {
+  if (
+    !data?.isBalanceWeek ||
+    !data.balanceWeekEnabled
+  ) {
     return null;
   }
 
