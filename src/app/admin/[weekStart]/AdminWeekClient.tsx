@@ -12,11 +12,8 @@ import WeekNav from "@/components/WeekNav";
 import SaveIndicator, {
   SaveState,
 } from "@/components/SaveIndicator";
-import {
-  PREFERENCE_STYLES,
-  UNSET_STYLE,
-  UNSET_LABEL,
-} from "@/components/PreferenceLegend";
+import AdminPreferencesCards from "@/components/AdminPreferencesCards";
+import PublishedScheduleGrid from "@/components/PublishedScheduleGrid";
 import ConfirmModal from "@/components/ConfirmModal";
 import { buildWeekSlots } from "@/lib/weekSlots";
 import {
@@ -43,12 +40,6 @@ import {
   WeekRow,
 } from "@/lib/types";
 import { resolveAdminWeekPayload } from "./adminWeekModel";
-
-const EMPLOYEE_INITIALS: Record<Employee, string> = {
-  hila: "ה",
-  yaara: "י",
-  omer: "ע",
-};
 
 const PREF_CYCLE: PreferenceValue[] = [
   "want",
@@ -1307,116 +1298,13 @@ export default function AdminWeekClient({
       </div>
 
       {/* Preferences overview */}
-      <div className="overflow-x-auto rounded-xl bg-white p-2 shadow-sm">
-        <div className="flex items-center justify-between p-2">
-          <h2 className="text-sm font-semibold text-slate-700">
-            העדפות העובדות
-          </h2>
-
-          {week.status === "open" && (
-            <span className="text-xs text-slate-400">
-              לחיצה על תג משנה
-              את ההעדפה
-            </span>
-          )}
-        </div>
-
-        <table className="w-full min-w-[500px] border-collapse text-center text-xs">
-          <thead>
-            <tr>
-              <th className="p-1 text-slate-500">
-                יום
-              </th>
-
-              {shiftDefinitions.map(
-                (shift) => (
-                  <th
-                    key={shift.id}
-                    className="p-1 text-slate-500"
-                  >
-                    {shift.name}
-                  </th>
-                )
-              )}
-            </tr>
-          </thead>
-
-          <tbody>
-            {DAY_LABELS.map(
-              (label, dayIndex) => (
-                <tr key={dayIndex}>
-                  <td className="p-1 font-semibold text-slate-600">
-                    {label}
-                  </td>
-
-                  {shiftDefinitions.map(
-                    (shift) => (
-                      <td
-                        key={shift.id}
-                        className="p-1"
-                      >
-                        <div className="flex justify-center gap-1">
-                          {EMPLOYEES.map(
-                            (employee) => {
-                              const preference =
-                                prefMap[
-                                  `${employee}-${dayIndex}-${shift.id}`
-                                ];
-
-                              const style =
-                                preference
-                                  ? PREFERENCE_STYLES[
-                                      preference
-                                    ]
-                                  : UNSET_STYLE;
-
-                              const editable =
-                                week.status ===
-                                "open";
-
-                              return (
-                                <button
-                                  key={employee}
-                                  type="button"
-                                  disabled={
-                                    !editable
-                                  }
-                                  onClick={() =>
-                                    handleEditPreference(
-                                      employee,
-                                      dayIndex,
-                                      shift.id
-                                    )
-                                  }
-                                  title={`${EMPLOYEE_LABELS[employee]}: ${
-                                    preference ??
-                                    UNSET_LABEL
-                                  }`}
-                                  className={`${style.bg} ${style.text} flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${
-                                    editable
-                                      ? "cursor-pointer ring-offset-1 hover:ring-2 hover:ring-slate-300"
-                                      : ""
-                                  }`}
-                                >
-                                  {
-                                    EMPLOYEE_INITIALS[
-                                      employee
-                                    ]
-                                  }
-                                </button>
-                              );
-                            }
-                          )}
-                        </div>
-                      </td>
-                    )
-                  )}
-                </tr>
-              )
-            )}
-          </tbody>
-        </table>
-      </div>
+      <AdminPreferencesCards
+        weekStart={weekStart}
+        weekStatus={week.status}
+        shiftDefinitions={shiftDefinitions}
+        preferences={prefMap}
+        onPreferenceClick={handleEditPreference}
+      />
 
       {/* Actions */}
       <div className="no-print flex flex-wrap gap-2">
@@ -1561,10 +1449,33 @@ export default function AdminWeekClient({
               )}
             </ul>
           </div>
-        )}
+      )}
 
       {/* Assignment editing table */}
-      <div className="overflow-x-auto rounded-xl bg-white p-2 shadow-sm">
+      {week.status === "published" ? (
+        <PublishedScheduleGrid
+          weekStart={weekStart}
+          shiftDefinitions={shiftDefinitions}
+          assignments={DAY_LABELS.flatMap((_, dayIndex) =>
+            shiftDefinitions.flatMap((shift) => {
+              const assignment =
+                assignMap[`${dayIndex}-${shift.id}`];
+
+              return assignment
+                ? [
+                    {
+                      dayIndex,
+                      shiftType: shift.id,
+                      employee: assignment.employee,
+                    },
+                  ]
+                : [];
+            })
+          )}
+          title="השיבוץ שפורסם"
+        />
+      ) : (
+        <div className="overflow-x-auto rounded-xl bg-white p-2 shadow-sm">
         <h2 className="p-2 text-sm font-semibold text-slate-700">
           הצעת שיבוץ
         </h2>
@@ -1637,9 +1548,7 @@ export default function AdminWeekClient({
                             }
                             disabled={
                               week.status ===
-                                "open" ||
-                              week.status ===
-                                "published"
+                                "open"
                             }
                             className={`w-full rounded-lg border px-1 py-2 text-xs ${
                               hasWarning ||
@@ -1694,7 +1603,8 @@ export default function AdminWeekClient({
             )}
           </tbody>
         </table>
-      </div>
+        </div>
+      )}
 
       {/* Live pay stats */}
       <div className="grid grid-cols-3 gap-2">
