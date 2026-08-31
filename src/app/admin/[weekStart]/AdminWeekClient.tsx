@@ -14,12 +14,18 @@ import SaveIndicator, {
 } from "@/components/SaveIndicator";
 import AdminPreferencesTable from "@/components/AdminPreferencesTable";
 import PublishedScheduleGrid from "@/components/PublishedScheduleGrid";
+import PremiumDaySuggestions from "@/components/PremiumDaySuggestions";
 import ConfirmModal from "@/components/ConfirmModal";
 import { buildWeekSlots } from "@/lib/weekSlots";
 import {
   recomputeFromAssignments,
 } from "@/lib/scheduler";
 import { formatUnits } from "@/lib/payUnits";
+import {
+  getPremiumDaySuggestions,
+  mergePremiumDays,
+  type PremiumDaySuggestion,
+} from "@/lib/premiumCalendar";
 import {
   LatestValueQueue,
   SettleInfo,
@@ -114,6 +120,11 @@ export default function AdminWeekClient({
         )
       ),
     [shiftDefinitions]
+  );
+
+  const premiumSuggestions = useMemo(
+    () => getPremiumDaySuggestions(weekStart),
+    [weekStart]
   );
 
   const [prefMap, setPrefMap] =
@@ -749,6 +760,42 @@ export default function AdminWeekClient({
         assignment.source === "manual"
     );
 
+  function savePremiumDays(nextDays: number[]) {
+    if (!week || week.status === "published") {
+      return;
+    }
+
+    const normalizedDays = Array.from(
+      new Set(nextDays)
+    ).sort((first, second) => first - second);
+
+    if (
+      normalizedDays.length === week.premium_days.length &&
+      normalizedDays.every(
+        (dayIndex, index) =>
+          week.premium_days[index] === dayIndex
+      )
+    ) {
+      return;
+    }
+
+    setWeek((currentWeek) =>
+      currentWeek
+        ? {
+            ...currentWeek,
+            premium_days: normalizedDays,
+          }
+        : currentWeek
+    );
+
+    setSaveState("saving");
+
+    premiumQueueRef.current!.enqueue(
+      "premium-days",
+      normalizedDays
+    );
+  }
+
   function togglePremiumDay(
     dayIndex: number
   ) {
@@ -765,26 +812,21 @@ export default function AdminWeekClient({
       current.add(dayIndex);
     }
 
-    const nextDays =
-      Array.from(current).sort(
-        (a, b) => a - b
-      );
+    savePremiumDays(Array.from(current));
+  }
 
-    setWeek((currentWeek) =>
-      currentWeek
-        ? {
-            ...currentWeek,
-            premium_days:
-              nextDays,
-          }
-        : currentWeek
-    );
+  function addPremiumSuggestions(
+    suggestions: PremiumDaySuggestion[]
+  ) {
+    if (!week) {
+      return;
+    }
 
-    setSaveState("saving");
-
-    premiumQueueRef.current!.enqueue(
-      "premium-days",
-      nextDays
+    savePremiumDays(
+      mergePremiumDays(
+        week.premium_days,
+        suggestions
+      )
     );
   }
 
@@ -1158,6 +1200,13 @@ export default function AdminWeekClient({
             }
           )}
         </div>
+
+        <PremiumDaySuggestions
+          suggestions={premiumSuggestions}
+          premiumDays={week.premium_days}
+          disabled={week.status === "published"}
+          onAddDays={addPremiumSuggestions}
+        />
       </div>
 
       {/* Actions */}
