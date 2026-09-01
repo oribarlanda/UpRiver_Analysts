@@ -13,8 +13,8 @@ describe("PWA manifest", () => {
     const value = manifest();
 
     expect(value).toMatchObject({
-      name: "UPRIVER",
-      short_name: "UPRIVER",
+      name: "UpRiver Shifts",
+      short_name: "UpRiver Shifts",
       start_url: "/",
       scope: "/",
       display: "standalone",

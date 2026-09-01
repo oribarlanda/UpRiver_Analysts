@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "UPRIVER",
-    short_name: "UPRIVER",
+    name: "UpRiver Shifts",
+    short_name: "UpRiver Shifts",
     description: "מערכת שיבוץ משמרות שבועית",
     start_url: "/",
     scope: "/",

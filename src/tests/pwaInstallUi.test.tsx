@@ -15,6 +15,7 @@ describe("iOS install instructions", () => {
     );
 
     expect(IOS_INSTALL_STEPS).toHaveLength(3);
+    expect(markup).toContain("UpRiver Shifts");
     expect(markup).toContain("Share");
     expect(markup).toContain("Add to Home Screen");
     expect(markup).toContain("Add");

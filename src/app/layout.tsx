@@ -3,9 +3,9 @@ import PwaInstall from "@/components/PwaInstall";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "UPRIVER",
+  title: "UpRiver Shifts",
   description: "מערכת שיבוץ משמרות שבועית",
-  applicationName: "UPRIVER",
+  applicationName: "UpRiver Shifts",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    title: "UPRIVER",
+    title: "UpRiver Shifts",
     statusBarStyle: "default",
   },
 };
