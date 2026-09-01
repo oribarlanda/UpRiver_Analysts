@@ -359,6 +359,43 @@ export async function upsertPreference(
   if (error) throw error;
 }
 
+export interface PreferenceBulkEntry {
+  dayIndex: number;
+  shiftType: ShiftType;
+  preference: PreferenceValue;
+}
+
+/** Stores a validated batch for one employee and one week. */
+export async function upsertPreferences(
+  weekId: string,
+  employee: Employee,
+  entries: readonly PreferenceBulkEntry[]
+): Promise<void> {
+  if (entries.length === 0) return;
+
+  const supabase = getSupabaseServerClient();
+  const updatedAt = new Date().toISOString();
+
+  const { error } = await supabase
+    .from("preferences")
+    .upsert(
+      entries.map((entry) => ({
+        week_id: weekId,
+        employee,
+        day_index: entry.dayIndex,
+        shift_type: entry.shiftType,
+        preference: entry.preference,
+        updated_at: updatedAt,
+      })),
+      {
+        onConflict:
+          "week_id,employee,day_index,shift_type",
+      }
+    );
+
+  if (error) throw error;
+}
+
 export async function getAssignments(
   weekId: string
 ): Promise<AssignmentRow[]> {

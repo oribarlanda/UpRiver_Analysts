@@ -18,6 +18,67 @@ function toISODate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Validates a real calendar date in YYYY-MM-DD format. */
+export function isValidISODate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+/** Returns the Sunday and zero-based day index for an ISO calendar date. */
+export function locateISODateInWeek(value: string): {
+  weekStart: string;
+  dayIndex: number;
+} {
+  if (!isValidISODate(value)) {
+    throw new Error("Invalid ISO calendar date.");
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const dayIndex = date.getUTCDay();
+
+  date.setUTCDate(date.getUTCDate() - dayIndex);
+
+  return {
+    weekStart: toISODate(date),
+    dayIndex,
+  };
+}
+
+/** Enumerates an inclusive ISO date range using timezone-neutral UTC math. */
+export function enumerateISODateRange(
+  fromDate: string,
+  toDate: string
+): string[] {
+  if (!isValidISODate(fromDate) || !isValidISODate(toDate)) {
+    throw new Error("Invalid ISO calendar date range.");
+  }
+
+  const start = new Date(`${fromDate}T00:00:00.000Z`);
+  const end = new Date(`${toDate}T00:00:00.000Z`);
+
+  if (start > end) {
+    throw new Error("Date range must start before it ends.");
+  }
+
+  const dates: string[] = [];
+
+  while (start <= end) {
+    dates.push(toISODate(start));
+    start.setUTCDate(start.getUTCDate() + 1);
+  }
+
+  return dates;
+}
+
 /** Returns the {year, month, day} of `date` as seen in `timeZone`. */
 function getZonedYMD(date: Date, timeZone: string): { y: number; m: number; d: number } {
   const parts = new Intl.DateTimeFormat("en-US", {

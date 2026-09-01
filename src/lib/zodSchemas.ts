@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isValidWeekStart } from "./dates";
+import { isValidISODate, isValidWeekStart } from "./dates";
 import {
   ALGORITHM_PRIORITY_IDS,
   MAX_SHIFTS_PER_DAY,
@@ -166,6 +166,36 @@ export const savePreferencesBulkSchema = z.object({
     )
     .min(1),
 });
+
+const isoDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(isValidISODate, "התאריך אינו תקין.");
+
+export const preferenceQuickActionSchema = z
+  .discriminatedUnion("action", [
+    z.object({
+      action: z.literal("copy_previous"),
+      weekStart: weekStartSchema,
+    }),
+    z.object({
+      action: z.literal("set_unavailable_range"),
+      fromDate: isoDateSchema,
+      toDate: isoDateSchema,
+    }),
+  ])
+  .superRefine((value, context) => {
+    if (
+      value.action === "set_unavailable_range" &&
+      value.fromDate > value.toDate
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "תאריך הסיום חייב להיות זהה לתאריך ההתחלה או מאוחר ממנו.",
+        path: ["toDate"],
+      });
+    }
+  });
 
 export const premiumDaysSchema = z.object({
   weekStart: weekStartSchema,

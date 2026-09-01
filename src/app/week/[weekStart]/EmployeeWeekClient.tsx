@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import WeekNav from "@/components/WeekNav";
-import PreferenceLegend from "@/components/PreferenceLegend";
+import PreferenceLegend, {
+  PREFERENCE_STYLES,
+} from "@/components/PreferenceLegend";
 import CompletionBar from "@/components/CompletionBar";
 import ShiftCell from "@/components/ShiftCell";
 import SaveIndicator, { SaveState } from "@/components/SaveIndicator";
@@ -11,6 +13,7 @@ import PublishedScheduleGrid from "@/components/PublishedScheduleGrid";
 import CalendarSubscriptionCard from "@/components/CalendarSubscriptionCard";
 import { LatestValueQueue, SettleInfo } from "@/lib/latestValueQueue";
 import { dayInWeek } from "@/lib/dates";
+import { wholeDayEntries } from "@/lib/preferenceQuickActions";
 import {
   compactCalendarDate,
   formatIcsLocalDateTime,
@@ -21,6 +24,7 @@ import {
   DEFAULT_SHIFT_DEFINITIONS,
   Employee,
   EMPLOYEE_LABELS,
+  PREFERENCE_LABELS,
   PreferenceRow,
   PreferenceValue,
   ShiftDefinition,
@@ -167,6 +171,9 @@ export default function EmployeeWeekClient({
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [exportingCalendar, setExportingCalendar] =
     useState(false);
+  const [dayActionIndex, setDayActionIndex] = useState<
+    number | null
+  >(null);
 
   const shiftDefinitions: ShiftDefinition[] =
     week?.shift_definitions?.length
@@ -337,10 +344,10 @@ export default function EmployeeWeekClient({
       );
   }
 
-  function loadData() {
-    setLoading(true);
+  function loadData(showLoading = true): Promise<void> {
+    if (showLoading) setLoading(true);
 
-    fetch(`/api/weeks/${weekStart}`)
+    return fetch(`/api/weeks/${weekStart}`)
       .then((response) => response.json())
       .then((data) => {
         if (data.error) {
@@ -389,15 +396,16 @@ export default function EmployeeWeekClient({
         setError("שגיאה בטעינת הנתונים.");
       })
       .finally(() => {
-        setLoading(false);
+        if (showLoading) setLoading(false);
       });
   }
 
   useEffect(() => {
     weekStartRef.current = weekStart;
     employeeRef.current = employee;
+    setDayActionIndex(null);
 
-    loadData();
+    void loadData();
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStart, employee]);
@@ -419,6 +427,10 @@ export default function EmployeeWeekClient({
   ) {
     const key = `${dayIndex}-${shiftType}`;
     const queue = queueRef.current!;
+
+    if ((prefs[key] ?? "can") === preference) {
+      return;
+    }
 
     if (!queue.hasAnyActive()) {
       batchHadErrorRef.current = false;
@@ -1015,7 +1027,14 @@ export default function EmployeeWeekClient({
             total={7 * shiftDefinitions.length}
           />
 
-          <PreferenceLegend />
+          <PreferenceLegend
+            weekStart={weekStart}
+            hasEditedPreferences={Object.values(prefs).some(
+              (preference) => preference !== "can"
+            )}
+            preferencesSaving={saveState === "saving"}
+            onPreferencesChanged={() => loadData(false)}
+          />
 
           {missing.length > 0 && (
             <div className="no-print rounded-xl bg-slate-100 p-3 text-xs text-slate-600">
@@ -1096,15 +1115,24 @@ export default function EmployeeWeekClient({
                 return (
                   <tr key={dayIndex}>
                     <td className="p-1 align-middle">
-                      <div className="flex flex-col items-center justify-center gap-1 sm:flex-row sm:gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setDayActionIndex(dayIndex)}
+                        disabled={week?.status !== "open"}
+                        aria-label={`החלת העדפה על כל יום ${label}, ${dateLabel}`}
+                        title="החלת העדפה על כל היום"
+                        className="group mx-auto flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg px-1 py-1 transition hover:bg-blue-50 disabled:cursor-default disabled:hover:bg-transparent sm:flex-row sm:gap-1.5"
+                      >
                         <span className="whitespace-nowrap text-xs font-semibold text-slate-700">
-                          {label}
+                          <span className="border-b border-dotted border-slate-400 group-hover:border-blue-500 group-hover:text-blue-700">
+                            {label}
+                          </span>
                         </span>
 
                         <span className="whitespace-nowrap rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
                           {dateLabel}
                         </span>
-                      </div>
+                      </button>
                     </td>
 
                     {shiftDefinitions.map((shift) => {
@@ -1229,6 +1257,86 @@ export default function EmployeeWeekClient({
       )}
 
       <SaveIndicator state={saveState} />
+
+      {dayActionIndex !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-3 backdrop-blur-sm sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="day-preference-dialog-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setDayActionIndex(null);
+            }
+          }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2
+                  id="day-preference-dialog-title"
+                  className="text-base font-bold text-slate-900"
+                >
+                  כל יום {DAY_LABELS[dayActionIndex]}
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  הבחירה תחול על כל {shiftDefinitions.length} המשמרות ביום
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setDayActionIndex(null)}
+                aria-label="סגירה"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-lg text-slate-500"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {(
+                [
+                  "want",
+                  "can",
+                  "prefer_not",
+                  "cannot",
+                ] as PreferenceValue[]
+              ).map((preference) => {
+                const style = PREFERENCE_STYLES[preference];
+
+                return (
+                  <button
+                    key={preference}
+                    type="button"
+                    onClick={() => {
+                      for (const entry of wholeDayEntries(
+                        shiftDefinitions,
+                        dayActionIndex,
+                        preference
+                      )) {
+                        handleChange(
+                          entry.dayIndex,
+                          entry.shiftType,
+                          entry.preference
+                        );
+                      }
+
+                      setDayActionIndex(null);
+                    }}
+                    className={`${style.bg} ${style.text} ${style.border} flex min-h-14 items-center justify-center gap-2 rounded-xl border-2 px-2 py-2 text-xs font-bold transition active:scale-[0.98]`}
+                  >
+                    <span className="text-base" aria-hidden="true">
+                      {style.symbol}
+                    </span>
+                    <span>{PREFERENCE_LABELS[preference]}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {calendarOpen && (
         <div
