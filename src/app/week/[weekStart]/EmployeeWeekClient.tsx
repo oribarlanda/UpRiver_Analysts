@@ -1139,13 +1139,6 @@ export default function EmployeeWeekClient({
 
       {week?.status === "published" && (
         <section className="no-print space-y-3">
-          <CalendarSubscriptionCard
-            feedPath={calendarFeedPath}
-            title="חיבור ליומן"
-            description="כל המשמרות שפורסמו עבורך, מכל השבועות, ביומן קבוע לקריאה בלבד."
-            scope="employee"
-          />
-
           <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
@@ -1198,10 +1191,7 @@ export default function EmployeeWeekClient({
               onClick={() =>
                 setCalendarOpen(true)
               }
-              disabled={
-                myAssignments.length === 0
-              }
-              className="group flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 active:translate-y-0 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+              className="group flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 active:translate-y-0"
             >
               <svg
                 aria-hidden="true"
@@ -1225,7 +1215,7 @@ export default function EmployeeWeekClient({
               </svg>
 
               <span>
-                אפשרויות יומן נוספות
+                אפשרויות יומן
               </span>
             </button>
           </div>
@@ -1266,7 +1256,7 @@ export default function EmployeeWeekClient({
                 </h2>
 
                 <p className="mt-0.5 text-xs text-slate-500">
-                  ייצוא ICS והוספת משמרת בודדת כפתרונות חלופיים
+                  חיבור קבוע, ייצוא ICS והוספת משמרת בודדת
                 </p>
               </div>
 
@@ -1428,6 +1418,15 @@ export default function EmployeeWeekClient({
                   }
                 )
               )}
+
+              <div className="border-t border-slate-100 pt-3">
+                <CalendarSubscriptionCard
+                  feedPath={calendarFeedPath}
+                  title="חיבור קבוע ליומן"
+                  description="כל המשמרות שפורסמו עבורך, מכל השבועות, ביומן קבוע לקריאה בלבד."
+                  scope="employee"
+                />
+              </div>
             </div>
           </div>
         </div>
