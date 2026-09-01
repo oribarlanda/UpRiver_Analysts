@@ -1,4 +1,5 @@
 export const APP_NAME = "UPRIVER";
+export const APP_DISPLAY_NAME = "UpRiver Shift Scheduler";
 
 export const APP_ICON_PATHS = {
   icon192: "/icons/upriver-192.png",

@@ -6,11 +6,12 @@ import WeekNav from "@/components/WeekNav";
 import PreferenceLegend, {
   PREFERENCE_STYLES,
 } from "@/components/PreferenceLegend";
-import CompletionBar from "@/components/CompletionBar";
 import ShiftCell from "@/components/ShiftCell";
 import SaveIndicator, { SaveState } from "@/components/SaveIndicator";
 import PublishedScheduleGrid from "@/components/PublishedScheduleGrid";
 import CalendarSubscriptionCard from "@/components/CalendarSubscriptionCard";
+import ChangelogModal from "@/components/ChangelogModal";
+import EmployeeHeader from "@/components/EmployeeHeader";
 import { LatestValueQueue, SettleInfo } from "@/lib/latestValueQueue";
 import { dayInWeek } from "@/lib/dates";
 import { wholeDayEntries } from "@/lib/preferenceQuickActions";
@@ -174,6 +175,7 @@ export default function EmployeeWeekClient({
   const [dayActionIndex, setDayActionIndex] = useState<
     number | null
   >(null);
+  const [changelogOpen, setChangelogOpen] = useState(false);
 
   const shiftDefinitions: ShiftDefinition[] =
     week?.shift_definitions?.length
@@ -417,8 +419,6 @@ export default function EmployeeWeekClient({
       clearFeedbackTimer();
     };
   }, []);
-
-  const completed = Object.keys(prefs).length;
 
   function handleChange(
     dayIndex: number,
@@ -1001,19 +1001,11 @@ export default function EmployeeWeekClient({
 
   return (
     <main className="mx-auto max-w-2xl space-y-4 p-3 pb-20">
-      <header className="no-print flex items-center justify-between">
-        <h1 className="text-xl font-bold">
-          שלום {EMPLOYEE_LABELS[employee]}
-        </h1>
-
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="text-sm text-slate-500 underline"
-        >
-          התנתקות
-        </button>
-      </header>
+      <EmployeeHeader
+        employeeName={EMPLOYEE_LABELS[employee]}
+        onOpenChangelog={() => setChangelogOpen(true)}
+        onLogout={handleLogout}
+      />
 
       <WeekNav
         weekStart={weekStart}
@@ -1022,11 +1014,6 @@ export default function EmployeeWeekClient({
 
       {week?.status === "open" && (
         <>
-          <CompletionBar
-            completed={completed}
-            total={7 * shiftDefinitions.length}
-          />
-
           <PreferenceLegend
             weekStart={weekStart}
             hasEditedPreferences={Object.values(prefs).some(
@@ -1257,6 +1244,11 @@ export default function EmployeeWeekClient({
       )}
 
       <SaveIndicator state={saveState} />
+
+      <ChangelogModal
+        open={changelogOpen}
+        onClose={() => setChangelogOpen(false)}
+      />
 
       {dayActionIndex !== null && (
         <div
