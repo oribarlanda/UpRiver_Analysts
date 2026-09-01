@@ -5,6 +5,7 @@ import {
   IOS_INSTALL_STEPS,
   IosInstallInstructions,
 } from "../components/PwaInstall";
+import { APP_NAME } from "../lib/branding";
 
 describe("iOS install instructions", () => {
   it("renders the voluntary Share to Home Screen flow", () => {
@@ -15,7 +16,7 @@ describe("iOS install instructions", () => {
     );
 
     expect(IOS_INSTALL_STEPS).toHaveLength(3);
-    expect(markup).toContain("UpRiver Shifts");
+    expect(markup).toContain(APP_NAME);
     expect(markup).toContain("Share");
     expect(markup).toContain("Add to Home Screen");
     expect(markup).toContain("Add");

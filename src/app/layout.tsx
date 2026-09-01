@@ -1,28 +1,29 @@
 import type { Metadata, Viewport } from "next";
 import PwaInstall from "@/components/PwaInstall";
+import { APP_ICON_PATHS, APP_NAME } from "@/lib/branding";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "UpRiver Shifts",
+  title: APP_NAME,
   description: "מערכת שיבוץ משמרות שבועית",
-  applicationName: "UpRiver Shifts",
+  applicationName: APP_NAME,
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
       {
-        url: "/icons/upriver-192.png",
+        url: APP_ICON_PATHS.icon192,
         sizes: "192x192",
         type: "image/png",
       },
       {
-        url: "/icons/upriver-512.png",
+        url: APP_ICON_PATHS.icon512,
         sizes: "512x512",
         type: "image/png",
       },
     ],
     apple: [
       {
-        url: "/icons/apple-touch-icon.png",
+        url: APP_ICON_PATHS.appleTouch,
         sizes: "180x180",
         type: "image/png",
       },
@@ -30,7 +31,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    title: "UpRiver Shifts",
+    title: APP_NAME,
     statusBarStyle: "default",
   },
 };

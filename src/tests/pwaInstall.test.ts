@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import manifest from "../app/manifest";
+import { APP_ICON_PATHS, APP_NAME } from "../lib/branding";
 import {
   BeforeInstallPromptEvent,
   getInstallUiMode,
@@ -13,8 +14,8 @@ describe("PWA manifest", () => {
     const value = manifest();
 
     expect(value).toMatchObject({
-      name: "UpRiver Shifts",
-      short_name: "UpRiver Shifts",
+      name: APP_NAME,
+      short_name: APP_NAME,
       start_url: "/",
       scope: "/",
       display: "standalone",
@@ -25,9 +26,21 @@ describe("PWA manifest", () => {
     });
     expect(value.icons).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ sizes: "192x192", purpose: "any" }),
-        expect.objectContaining({ sizes: "512x512", purpose: "any" }),
-        expect.objectContaining({ sizes: "512x512", purpose: "maskable" }),
+        expect.objectContaining({
+          src: APP_ICON_PATHS.icon192,
+          sizes: "192x192",
+          purpose: "any",
+        }),
+        expect.objectContaining({
+          src: APP_ICON_PATHS.icon512,
+          sizes: "512x512",
+          purpose: "any",
+        }),
+        expect.objectContaining({
+          src: APP_ICON_PATHS.maskable512,
+          sizes: "512x512",
+          purpose: "maskable",
+        }),
       ])
     );
   });

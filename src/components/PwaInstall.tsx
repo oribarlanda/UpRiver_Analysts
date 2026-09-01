@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { APP_NAME } from "@/lib/branding";
 import {
   BeforeInstallPromptEvent,
   getInstallUiMode,
@@ -37,7 +38,7 @@ export function IosInstallInstructions({
               id="ios-install-title"
               className="text-lg font-bold text-slate-900"
             >
-              התקנת UpRiver Shifts באייפון או באייפד
+              התקנת {APP_NAME} באייפון או באייפד
             </h2>
             <p className="mt-1 text-xs leading-5 text-slate-500">
               ההתקנה מתבצעת ישירות מהדפדפן, בלי App Store.
@@ -202,7 +203,7 @@ export default function PwaInstall() {
             <path d="M12 3v12m0 0 4-4m-4 4-4-4" />
             <path d="M5 19h14" />
           </svg>
-          {mode === "native" ? "התקן את UpRiver Shifts" : "איך מתקינים?"}
+          {mode === "native" ? `התקן את ${APP_NAME}` : "איך מתקינים?"}
         </button>
       </div>
 

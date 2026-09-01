@@ -1,8 +1,19 @@
-import { beforeAll, describe, expect, it } from "vitest";
-import { SESSION_MAX_AGE_SECONDS, signSession, verifySession } from "../lib/session";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  SESSION_DURATION_DAYS,
+  SESSION_MAX_AGE_SECONDS,
+  getExpiredSessionCookieOptions,
+  getSessionCookieOptions,
+  signSession,
+  verifySession,
+} from "../lib/session";
 
 beforeAll(() => {
   process.env.SESSION_SECRET = "test-secret-at-least-16-characters-long";
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("signSession / verifySession", () => {
@@ -11,6 +22,16 @@ describe("signSession / verifySession", () => {
     const payload = await verifySession(token);
     expect(payload).not.toBeNull();
     expect(payload?.role).toBe("hila");
+  });
+
+  it("keeps a session valid just inside the 180-day window", async () => {
+    const issuedAt = Date.now() - (SESSION_MAX_AGE_SECONDS - 60) * 1000;
+    const token = await signSession({ role: "omer", iat: issuedAt });
+
+    await expect(verifySession(token)).resolves.toMatchObject({
+      role: "omer",
+      iat: issuedAt,
+    });
   });
 
   it("rejects a session with an invalid role smuggled into the payload", async () => {
@@ -63,5 +84,40 @@ describe("signSession / verifySession", () => {
     expect(await verifySession(null)).toBeNull();
     expect(await verifySession(undefined)).toBeNull();
     expect(await verifySession("not-a-real-token")).toBeNull();
+  });
+});
+
+describe("persistent session cookie options", () => {
+  it("uses one 180-day source of truth for Max-Age and Expires", () => {
+    const now = Date.UTC(2026, 8, 1, 12);
+    const options = getSessionCookieOptions(now);
+
+    expect(SESSION_DURATION_DAYS).toBe(180);
+    expect(options.maxAge).toBe(180 * 24 * 60 * 60);
+    expect(options.expires.getTime()).toBe(
+      now + options.maxAge * 1000
+    );
+    expect(options).toMatchObject({
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+    });
+  });
+
+  it("sets Secure only in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    expect(getSessionCookieOptions().secure).toBe(true);
+
+    vi.stubEnv("NODE_ENV", "development");
+    expect(getSessionCookieOptions().secure).toBe(false);
+  });
+
+  it("expires both cookie mechanisms on logout", () => {
+    const options = getExpiredSessionCookieOptions();
+
+    expect(options.maxAge).toBe(0);
+    expect(options.expires.getTime()).toBe(0);
+    expect(options.httpOnly).toBe(true);
+    expect(options.sameSite).toBe("lax");
   });
 });

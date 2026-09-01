@@ -9,7 +9,9 @@ import { Role } from "./types";
  */
 
 export const SESSION_COOKIE_NAME = "session";
-export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
+export const SESSION_DURATION_DAYS = 180;
+export const SESSION_MAX_AGE_SECONDS =
+  60 * 60 * 24 * SESSION_DURATION_DAYS;
 const SESSION_MAX_AGE_MS = SESSION_MAX_AGE_SECONDS * 1000;
 
 const VALID_ROLES: Role[] = ["hila", "yaara", "omer", "admin"];
@@ -117,12 +119,22 @@ export async function verifySession(cookieValue: string | undefined | null): Pro
 /** Cookie options for setting the session cookie. `secure` is only forced
  * on in production, since `secure` cookies are dropped by browsers over
  * plain http:// (used for local development). */
-export function getSessionCookieOptions() {
+export function getSessionCookieOptions(now = Date.now()) {
   return {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax" as const,
     path: "/",
     maxAge: SESSION_MAX_AGE_SECONDS,
+    expires: new Date(now + SESSION_MAX_AGE_MS),
+  };
+}
+
+/** Removes both persistent-cookie expiry mechanisms during logout. */
+export function getExpiredSessionCookieOptions() {
+  return {
+    ...getSessionCookieOptions(),
+    maxAge: 0,
+    expires: new Date(0),
   };
 }
