@@ -8,6 +8,7 @@ import CompletionBar from "@/components/CompletionBar";
 import ShiftCell from "@/components/ShiftCell";
 import SaveIndicator, { SaveState } from "@/components/SaveIndicator";
 import PublishedScheduleGrid from "@/components/PublishedScheduleGrid";
+import CalendarSubscriptionCard from "@/components/CalendarSubscriptionCard";
 import { LatestValueQueue, SettleInfo } from "@/lib/latestValueQueue";
 import { dayInWeek } from "@/lib/dates";
 import {
@@ -138,9 +139,11 @@ function canvasToBlob(
 export default function EmployeeWeekClient({
   weekStart,
   employee,
+  calendarFeedPath,
 }: {
   weekStart: string;
   employee: Employee;
+  calendarFeedPath: string;
 }) {
   const router = useRouter();
 
@@ -1136,6 +1139,13 @@ export default function EmployeeWeekClient({
 
       {week?.status === "published" && (
         <section className="no-print space-y-3">
+          <CalendarSubscriptionCard
+            feedPath={calendarFeedPath}
+            title="חיבור ליומן"
+            description="כל המשמרות שפורסמו עבורך, מכל השבועות, ביומן קבוע לקריאה בלבד."
+            scope="employee"
+          />
+
           <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
@@ -1191,7 +1201,7 @@ export default function EmployeeWeekClient({
               disabled={
                 myAssignments.length === 0
               }
-              className="group flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-3 py-3 text-sm font-bold text-white shadow-lg shadow-blue-200/70 transition hover:-translate-y-0.5 hover:bg-blue-700 active:translate-y-0 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+              className="group flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 active:translate-y-0 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
             >
               <svg
                 aria-hidden="true"
@@ -1215,7 +1225,7 @@ export default function EmployeeWeekClient({
               </svg>
 
               <span>
-                המשמרות שלי ליומן
+                אפשרויות יומן נוספות
               </span>
             </button>
           </div>
@@ -1256,8 +1266,7 @@ export default function EmployeeWeekClient({
                 </h2>
 
                 <p className="mt-0.5 text-xs text-slate-500">
-                  לחץ על משמרת כדי לפתוח
-                  אירוע מוכן ב־Google Calendar
+                  ייצוא ICS והוספת משמרת בודדת כפתרונות חלופיים
                 </p>
               </div>
 
@@ -1293,7 +1302,7 @@ export default function EmployeeWeekClient({
                     )
                   }
                   disabled={exportingCalendar}
-                  className="group flex w-full items-center justify-center gap-3 rounded-2xl bg-violet-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-violet-200/70 transition hover:-translate-y-0.5 hover:bg-violet-700 active:translate-y-0 disabled:cursor-wait disabled:opacity-70"
+                  className="group flex w-full items-center justify-center gap-3 rounded-2xl bg-slate-700 px-4 py-3.5 text-sm font-bold text-white shadow-md transition hover:bg-slate-800 active:translate-y-0 disabled:cursor-wait disabled:opacity-70"
                 >
                   <svg
                     aria-hidden="true"
@@ -1319,7 +1328,7 @@ export default function EmployeeWeekClient({
                   <span>
                     {exportingCalendar
                       ? "מכין קובץ יומן..."
-                      : "ייצוא כל המשמרות ליומן"}
+                      : "ייצוא ICS כחלופה"}
                   </span>
                 </button>
               )}

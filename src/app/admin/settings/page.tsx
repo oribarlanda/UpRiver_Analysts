@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentSession, isAdmin } from "@/lib/auth";
+import { getCalendarFeedPath } from "@/lib/calendarFeedAccess";
 import {
   getWeekStart,
   isValidWeekStart,
@@ -44,6 +45,7 @@ export default async function AdminSettingsPage({
     <ShiftStructureSettingsClient
       backHref={`/admin/${returnWeekStart}`}
       weekStart={returnWeekStart}
+      managerCalendarFeedPath={getCalendarFeedPath("admin")}
     />
   );
 }

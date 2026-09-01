@@ -13,6 +13,7 @@ import {
 } from "@/lib/types";
 import AlgorithmPrioritySettings from "./AlgorithmPrioritySettings";
 import BalanceWeekSettings from "./BalanceWeekSettings";
+import CalendarSubscriptionCard from "@/components/CalendarSubscriptionCard";
 
 interface ShiftDraft {
   id: string;
@@ -284,15 +285,18 @@ function validateDrafts(
 export default function ShiftStructureSettingsClient({
   backHref,
   weekStart,
+  managerCalendarFeedPath,
 }: {
   backHref: string;
   weekStart: string;
+  managerCalendarFeedPath: string;
 }) {
   const [activeTab, setActiveTab] =
     useState<
       | "shift-structure"
       | "algorithm-priority"
       | "balance-week"
+      | "manager-calendar"
     >("shift-structure");
   const [priorityDirty, setPriorityDirty] =
     useState(false);
@@ -729,6 +733,22 @@ export default function ShiftStructureSettingsClient({
         >
           שבוע מאזן
         </button>
+
+        <button
+          id="manager-calendar-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "manager-calendar"}
+          aria-controls="manager-calendar-panel"
+          onClick={() => setActiveTab("manager-calendar")}
+          className={`min-h-11 w-full rounded-xl px-4 text-sm font-bold transition sm:w-auto ${
+            activeTab === "manager-calendar"
+              ? "bg-slate-800 text-white shadow-sm"
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          }`}
+        >
+          יומן מנהל
+        </button>
       </nav>
 
       <section
@@ -1082,6 +1102,20 @@ export default function ShiftStructureSettingsClient({
         hidden={activeTab !== "balance-week"}
         onDirtyChange={setBalanceWeekDirty}
       />
+
+      <div
+        id="manager-calendar-panel"
+        role="tabpanel"
+        aria-labelledby="manager-calendar-tab"
+        hidden={activeTab !== "manager-calendar"}
+      >
+        <CalendarSubscriptionCard
+          feedPath={managerCalendarFeedPath}
+          title="יומן מנהל"
+          description="כל המשמרות של כל העובדות מכל השבועות שפורסמו, עם שם העובדת בכל אירוע."
+          scope="admin"
+        />
+      </div>
     </main>
   );
 }
