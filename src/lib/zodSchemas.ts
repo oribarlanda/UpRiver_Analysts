@@ -217,6 +217,30 @@ export const publishSchema = z.object({
   weekStart: weekStartSchema,
 });
 
+const pushKeySchema = z
+  .string()
+  .min(1)
+  .max(512)
+  .regex(/^[A-Za-z0-9_-]+$/);
+
+const pushEndpointSchema = z
+  .string()
+  .url()
+  .max(4096)
+  .refine((value) => new URL(value).protocol === "https:");
+
+export const pushSubscriptionSchema = z.object({
+  endpoint: pushEndpointSchema,
+  keys: z.object({
+    p256dh: pushKeySchema,
+    auth: pushKeySchema,
+  }),
+});
+
+export const pushUnsubscribeSchema = z.object({
+  endpoint: pushEndpointSchema,
+});
+
 export const reopenSchema = z.object({
   weekStart: weekStartSchema,
   toStatus: z.enum(["open", "draft"]).default("open"),

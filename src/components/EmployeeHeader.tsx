@@ -1,6 +1,7 @@
 import React from "react";
 import Image from "next/image";
 import { APP_LOGO_PATH, APP_NAME } from "@/lib/branding";
+import PushNotifications from "./PushNotifications";
 
 export default function EmployeeHeader({
   employeeName,
@@ -12,7 +13,7 @@ export default function EmployeeHeader({
   onLogout: () => void;
 }) {
   return (
-    <header className="no-print flex items-center justify-between gap-2">
+    <header className="no-print flex flex-wrap items-center justify-between gap-2">
       <div className="flex min-w-0 items-center gap-2">
         <Image
           src={APP_LOGO_PATH}
@@ -27,7 +28,8 @@ export default function EmployeeHeader({
         </h1>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 text-xs sm:text-sm">
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 text-xs sm:text-sm">
+        <PushNotifications />
         <button
           type="button"
           onClick={onOpenChangelog}

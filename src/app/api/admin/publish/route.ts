@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentSession, isAdmin } from "@/lib/auth";
-import { getAssignments, getOrCreateWeek, updateWeekStatus } from "@/lib/db";
+import {
+  getAssignments,
+  getOrCreateWeek,
+  publishWeekWithAssignmentSnapshots,
+} from "@/lib/db";
 import { publishSchema } from "@/lib/zodSchemas";
 import { findMissingAssignments } from "@/lib/completeness";
 import { assertPublishable, StatusError } from "@/lib/statusGuards";
+import { notifyPublishedSchedule } from "@/lib/pushEvents";
+import { sendPushNotifications } from "@/lib/pushServer";
 
 export async function POST(req: NextRequest) {
   const session = await getCurrentSession();
@@ -39,7 +45,13 @@ export async function POST(req: NextRequest) {
     throw err;
   }
 
-  await updateWeekStatus(week.id, "published");
+  const publishResult = await publishWeekWithAssignmentSnapshots(week.id);
+
+  await notifyPublishedSchedule(
+    publishResult,
+    parsed.data.weekStart,
+    sendPushNotifications
+  );
 
   return NextResponse.json({ ok: true });
 }

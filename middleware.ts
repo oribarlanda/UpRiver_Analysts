@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE_NAME, verifySession } from "./src/lib/session";
 
 export const config = {
-  matcher: ["/week/:path*", "/admin/:path*", "/api/preferences/:path*", "/api/weeks/:path*", "/api/admin/:path*"],
+  matcher: ["/week/:path*", "/admin/:path*", "/api/preferences/:path*", "/api/weeks/:path*", "/api/admin/:path*", "/api/push/:path*"],
 };
 
 export async function middleware(req: NextRequest) {

@@ -187,6 +187,39 @@ export async function updateWeekStatus(
   if (error) throw error;
 }
 
+export interface PublishWeekResult {
+  firstPublication: boolean;
+  changedEmployees: Employee[];
+}
+
+/**
+ * Atomically publishes a draft and replaces the per-employee fingerprints
+ * used to compare the next re-publication with this published version.
+ */
+export async function publishWeekWithAssignmentSnapshots(
+  weekId: string
+): Promise<PublishWeekResult> {
+  const supabase = getSupabaseServerClient();
+  const { data, error } = await supabase.rpc(
+    "publish_week_with_assignment_snapshots",
+    { p_week_id: weekId }
+  );
+
+  if (error) throw error;
+
+  const row = Array.isArray(data) ? data[0] : data;
+  const changedEmployees = Array.isArray(row?.changed_employees)
+    ? row.changed_employees.filter((employee: unknown): employee is Employee =>
+        EMPLOYEES.includes(employee as Employee)
+      )
+    : [];
+
+  return {
+    firstPublication: row?.first_publication === true,
+    changedEmployees,
+  };
+}
+
 export async function updatePremiumDays(
   weekId: string,
   premiumDays: number[]
