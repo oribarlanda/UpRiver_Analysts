@@ -1,15 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { getCurrentSession, isAdmin } from "@/lib/auth";
 import {
   getAssignments,
   getOrCreateWeek,
   publishWeekWithAssignmentSnapshots,
+  updateWeekStatus,
 } from "@/lib/db";
 import { publishSchema } from "@/lib/zodSchemas";
 import { findMissingAssignments } from "@/lib/completeness";
 import { assertPublishable, StatusError } from "@/lib/statusGuards";
 import { notifyPublishedSchedule } from "@/lib/pushEvents";
 import { sendPushNotifications } from "@/lib/pushServer";
+import { publishSchedule } from "@/lib/publishFlow";
 
 export async function POST(req: NextRequest) {
   const session = await getCurrentSession();
@@ -45,13 +47,18 @@ export async function POST(req: NextRequest) {
     throw err;
   }
 
-  const publishResult = await publishWeekWithAssignmentSnapshots(week.id);
-
-  await notifyPublishedSchedule(
-    publishResult,
-    parsed.data.weekStart,
-    sendPushNotifications
-  );
+  await publishSchedule({
+    weekStart: parsed.data.weekStart,
+    publishWithSnapshots: () => publishWeekWithAssignmentSnapshots(week.id),
+    publishWithoutSnapshots: () => updateWeekStatus(week.id, "published"),
+    queueNotification: (task) => after(task),
+    notify: (publishResult) =>
+      notifyPublishedSchedule(
+        publishResult,
+        parsed.data.weekStart,
+        sendPushNotifications
+      ),
+  });
 
   return NextResponse.json({ ok: true });
 }

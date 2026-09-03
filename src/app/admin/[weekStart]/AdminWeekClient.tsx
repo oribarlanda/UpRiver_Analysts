@@ -978,8 +978,9 @@ export default function AdminWeekClient({
         }
       );
 
-      const data =
-        await response.json();
+      const data = await response
+        .json()
+        .catch(() => ({}));
 
       if (!response.ok) {
         setActionError(
@@ -991,6 +992,10 @@ export default function AdminWeekClient({
       }
 
       loadData();
+    } catch {
+      setActionError(
+        "שגיאה בפרסום. נסו שוב."
+      );
     } finally {
       setBusy(false);
     }

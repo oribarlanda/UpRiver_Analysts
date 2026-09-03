@@ -1,89 +1,21 @@
--- Web Push subscriptions and per-employee published assignment snapshots.
--- All access stays server-side through the service-role Supabase client.
+-- Remove the accidental pgcrypto dependency from schedule publication.
+-- Migration 0007 installed the function with search_path=public, while
+-- Supabase exposes digest() from the extensions schema. Canonical assignment
+-- text is already a stable fingerprint and avoids that runtime dependency.
 
-create table if not exists public.push_subscriptions (
-  id uuid primary key default gen_random_uuid(),
-  employee text not null check (employee in ('hila', 'yaara', 'omer')),
-  endpoint text not null unique,
-  p256dh text not null,
-  auth text not null,
-  user_agent text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  last_success_at timestamptz,
-  last_failure_at timestamptz,
-  failure_count integer not null default 0 check (failure_count >= 0)
-);
+update public.published_assignment_snapshots as snapshot
+set assignment_fingerprint = coalesce((
+  select string_agg(
+    assignment.day_index::text || ':' || assignment.shift_type,
+    ','
+    order by assignment.day_index, assignment.shift_type
+  )
+  from public.assignments as assignment
+  where assignment.week_id = snapshot.week_id
+    and assignment.employee = snapshot.employee
+), ''),
+updated_at = now();
 
-create index if not exists idx_push_subscriptions_employee
-  on public.push_subscriptions(employee);
-
-alter table public.push_subscriptions enable row level security;
-
-comment on table public.push_subscriptions is
-  'Opt-in Web Push devices. The unique endpoint may be re-associated to the currently authenticated employee.';
-
-create or replace function public.record_push_subscription_failure(
-  p_endpoint text
-)
-returns void
-language sql
-set search_path = public
-as $$
-  update public.push_subscriptions
-  set last_failure_at = now(),
-      failure_count = failure_count + 1
-  where endpoint = p_endpoint;
-$$;
-
-revoke execute on function public.record_push_subscription_failure(text)
-  from public, anon, authenticated;
-
-grant execute on function public.record_push_subscription_failure(text)
-  to service_role;
-
-create table if not exists public.published_assignment_snapshots (
-  week_id uuid not null references public.weeks(id) on delete cascade,
-  employee text not null check (employee in ('hila', 'yaara', 'omer')),
-  assignment_fingerprint text not null,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  primary key (week_id, employee)
-);
-
-alter table public.published_assignment_snapshots enable row level security;
-
-comment on table public.published_assignment_snapshots is
-  'Last successfully published assignment fingerprint per employee and week, retained through reopen flows.';
-
--- Preserve the currently published state as the baseline when this feature
--- is introduced to an existing deployment.
-insert into public.published_assignment_snapshots (
-  week_id,
-  employee,
-  assignment_fingerprint
-)
-select
-  week.id,
-  employees.employee,
-  coalesce((
-    select string_agg(
-      assignment.day_index::text || ':' || assignment.shift_type,
-      ','
-      order by assignment.day_index, assignment.shift_type
-    )
-    from public.assignments as assignment
-    where assignment.week_id = week.id
-      and assignment.employee = employees.employee
-  ), '')
-from public.weeks as week
-cross join unnest(array['hila', 'yaara', 'omer']) as employees(employee)
-where week.status = 'published'
-on conflict (week_id, employee) do nothing;
-
--- Publishes the week and updates all employee snapshots in one transaction.
--- The returned diff is compared with the previous publication, so draft edits
--- never generate notification spam and a no-op re-publication stays silent.
 create or replace function public.publish_week_with_assignment_snapshots(
   p_week_id uuid
 )
