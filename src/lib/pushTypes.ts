@@ -2,7 +2,8 @@ import type { Employee } from "./types";
 
 export type PushNotificationType =
   | "schedule_published"
-  | "schedule_updated";
+  | "schedule_updated"
+  | "preference_reminder";
 
 export interface PushNotificationPayload {
   title: "UpRiver";

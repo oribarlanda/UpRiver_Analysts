@@ -19,6 +19,14 @@ describe("Web Push service worker", () => {
     expect(existsSync(resolve(process.cwd(), `public${badgePath}`))).toBe(true);
   });
 
+  it("uses the existing worker and badge for preference reminders", () => {
+    expect(source).toContain("preference_reminder");
+    expect(source).toContain(
+      "תזכורת למלא ולאשר את ההעדפות לשבוע הבא 📋"
+    );
+    expect(source).toContain('data: { url: payload.url || "/" }');
+  });
+
   it("focuses/navigates an existing window or opens one notification URL", () => {
     expect(source).toContain('addEventListener("notificationclick"');
     expect(source).toContain("matchAll");

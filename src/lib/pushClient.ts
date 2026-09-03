@@ -34,6 +34,17 @@ export function resolvePushUiState(input: PushSupportInput): PushUiState {
   return "inactive";
 }
 
+export function isPushMasterOn(state: PushUiState): boolean {
+  return state === "active";
+}
+
+export function notificationChoicesDisabled(
+  state: PushUiState,
+  settingsUnavailable: boolean
+): boolean {
+  return !isPushMasterOn(state) || settingsUnavailable;
+}
+
 export function urlBase64ToArrayBuffer(value: string): ArrayBuffer {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);
   const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");

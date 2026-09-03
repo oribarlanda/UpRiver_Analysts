@@ -9,7 +9,7 @@ import { CHANGELOG_ENTRIES } from "../lib/changelog";
 import { APP_LOGO_PATH } from "../lib/branding";
 
 describe("employee header", () => {
-  it("keeps the logo, greeting and compact changelog action beside logout", () => {
+  it("keeps all three employee actions on one compact mobile row", () => {
     const markup = renderToStaticMarkup(
       createElement(EmployeeHeader, {
         employeeName: "הילה",
@@ -19,10 +19,13 @@ describe("employee header", () => {
     );
 
     expect(markup).toContain("שלום הילה");
+    expect(markup).toContain("🔔התראות");
     expect(markup).toContain("מה חדש?");
     expect(markup).toContain("התנתקות");
     expect(markup).toContain(encodeURIComponent(APP_LOGO_PATH));
-    expect(markup).toContain("text-xs sm:text-sm");
+    expect(markup).toContain("flex-nowrap");
+    expect(markup).toContain("whitespace-nowrap");
+    expect(markup).not.toContain("flex-wrap");
   });
 
   it("does not render the obsolete completion bar on the employee screen", () => {
@@ -36,6 +39,25 @@ describe("employee header", () => {
 
     expect(source).not.toContain("CompletionBar");
     expect(source).not.toContain("הושלמו");
+  });
+
+  it("renders only the three requested notification types with day and hour reminders", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/components/PushNotifications.tsx"),
+      "utf8"
+    );
+
+    expect(source).toContain("ניהול התראות");
+    expect(source).toContain("התראות במכשיר");
+    expect(source).toContain("🎉 פרסום שיבוץ");
+    expect(source).toContain("✏️ עדכון שיבוץ");
+    expect(source).toContain("📋 תזכורת למילוי העדפות");
+    expect(source).toContain("+ הוספת תזכורת");
+    expect(source).toContain("יום:");
+    expect(source).toContain("שעה:");
+    expect(source).toContain("במהלך השעה שנבחרה");
+    expect(source).not.toContain("תזכורת לפני משמרת");
+    expect(source).not.toContain('type="time"');
   });
 });
 

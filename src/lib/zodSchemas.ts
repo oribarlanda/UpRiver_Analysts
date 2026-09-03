@@ -241,6 +241,30 @@ export const pushUnsubscribeSchema = z.object({
   endpoint: pushEndpointSchema,
 });
 
+export const notificationPreferencesSchema = z.object({
+  schedulePublishedEnabled: z.boolean(),
+  scheduleUpdatedEnabled: z.boolean(),
+  preferenceRemindersEnabled: z.boolean(),
+  preferenceReminders: z
+    .array(
+      z.object({
+        dayOfWeek: z.number().int().min(0).max(6),
+        time: z.string().regex(/^(?:[01][0-9]|2[0-3]):00$/),
+      })
+    )
+    .max(10)
+    .refine(
+      (reminders) =>
+        new Set(
+          reminders.map(
+            (reminder) => `${reminder.dayOfWeek}:${reminder.time}`
+          )
+        ).size ===
+        reminders.length,
+      "כל תזכורת יכולה להופיע פעם אחת בלבד."
+    ),
+});
+
 export const reopenSchema = z.object({
   weekStart: weekStartSchema,
   toStatus: z.enum(["open", "draft"]).default("open"),

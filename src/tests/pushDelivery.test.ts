@@ -37,4 +37,34 @@ describe("push delivery cleanup", () => {
     expect(removed).toEqual(["dead"]);
     expect(result).toMatchObject({ attempted: 1, removed: 1, failed: 0 });
   });
+
+  it("delivers an employee notification to every subscribed device", async () => {
+    const devices: StoredPushSubscription[] = [
+      { employee: "hila", endpoint: "phone", p256dh: "key-1", auth: "auth-1" },
+      { employee: "hila", endpoint: "tablet", p256dh: "key-2", auth: "auth-2" },
+    ];
+    const sent: string[] = [];
+    const repository: PushDeliveryRepository = {
+      async listForEmployees(employees) {
+        return devices.filter((device) => employees.includes(device.employee));
+      },
+      async markSuccess() {},
+      async markFailure() {},
+      async deleteByEndpoint() {},
+    };
+
+    const result = await deliverPushNotifications(
+      ["hila"],
+      buildSchedulePublishedPayload("2026-09-06"),
+      repository,
+      {
+        async send(subscription) {
+          sent.push(subscription.endpoint);
+        },
+      }
+    );
+
+    expect(sent.sort()).toEqual(["phone", "tablet"]);
+    expect(result).toMatchObject({ attempted: 2, delivered: 2, failed: 0 });
+  });
 });

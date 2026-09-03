@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolvePushUiState } from "../lib/pushClient";
+import {
+  isPushMasterOn,
+  notificationChoicesDisabled,
+  resolvePushUiState,
+} from "../lib/pushClient";
 
 const supported = {
   hasServiceWorker: true,
@@ -29,6 +33,16 @@ describe("push permission/support UI states", () => {
     ).toBe("denied");
   });
 
+  it("keeps default permission inactive until an explicit enable action", () => {
+    expect(
+      resolvePushUiState({
+        ...supported,
+        permission: "default",
+        hasSubscription: false,
+      })
+    ).toBe("inactive");
+  });
+
   it("shows friendly fallbacks for unsupported or unconfigured clients", () => {
     expect(
       resolvePushUiState({
@@ -46,5 +60,13 @@ describe("push permission/support UI states", () => {
         hasSubscription: false,
       })
     ).toBe("unconfigured");
+  });
+
+  it("turns the master on only for an active device and disables choices otherwise", () => {
+    expect(isPushMasterOn("active")).toBe(true);
+    expect(isPushMasterOn("inactive")).toBe(false);
+    expect(notificationChoicesDisabled("inactive", false)).toBe(true);
+    expect(notificationChoicesDisabled("active", false)).toBe(false);
+    expect(notificationChoicesDisabled("active", true)).toBe(true);
   });
 });

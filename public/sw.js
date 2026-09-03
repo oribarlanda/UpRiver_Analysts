@@ -12,6 +12,7 @@ self.addEventListener("push", (event) => {
   const bodies = {
     schedule_published: "השיבוץ לשבוע הבא פורסם 🎉",
     schedule_updated: "השיבוץ שלך עודכן",
+    preference_reminder: "תזכורת למלא ולאשר את ההעדפות לשבוע הבא 📋",
   };
   const body = bodies[payload.type];
   if (!body) return;
