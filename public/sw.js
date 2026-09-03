@@ -20,7 +20,7 @@ self.addEventListener("push", (event) => {
     self.registration.showNotification("UpRiver", {
       body,
       icon: "/icons/upriver-192.png",
-      badge: "/icons/upriver-192.png",
+      badge: "/icons/notification-badge.png",
       data: { url: payload.url || "/" },
       tag: `${payload.type}:${payload.weekStart || "general"}`,
     })

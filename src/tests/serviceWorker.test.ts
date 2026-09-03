@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -10,6 +10,13 @@ describe("Web Push service worker", () => {
     expect(source).toContain("showNotification");
     expect(source).not.toContain("caches.open");
     expect(source).not.toContain('addEventListener("fetch"');
+  });
+
+  it("uses the dedicated Android notification badge asset", () => {
+    const badgePath = "/icons/notification-badge.png";
+
+    expect(source).toContain(`badge: "${badgePath}"`);
+    expect(existsSync(resolve(process.cwd(), `public${badgePath}`))).toBe(true);
   });
 
   it("focuses/navigates an existing window or opens one notification URL", () => {
