@@ -12,6 +12,31 @@ export interface ChangelogEntry {
 /** Add new releases at the top so the UI always shows the latest first. */
 export const CHANGELOG_ENTRIES = [
   {
+    date: "03.09.2026",
+    bullets: [
+      {
+        icon: "🔔",
+        title: "התראות בדחיפה (Push Notifications)",
+        description: "",
+      },
+      {
+        icon: "↳",
+        title: "🎉 התראה כשהשיבוץ מתפרסם או מתעדכן",
+        description: "לפי העדפות ההתראות שלך.",
+      },
+      {
+        icon: "↳",
+        title: "⏰ תזכורות אישיות למילוי העדפות",
+        description: "בחרי יום ושעה, ואפשר להוסיף כמה תזכורות.",
+      },
+      {
+        icon: "↳",
+        title: "⚙️ ניהול אישי של סוגי ההתראות",
+        description: "דרך כפתור 🔔התראות.",
+      },
+    ],
+  },
+  {
     date: "01.09.2026",
     bullets: [
       {
