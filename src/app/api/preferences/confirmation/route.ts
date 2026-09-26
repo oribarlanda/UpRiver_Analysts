@@ -4,7 +4,9 @@ import { getOrCreateWeek } from "@/lib/db";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
 import { Employee } from "@/lib/types";
 
-const WEEK_START_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+import { isValidWeekStart as validWeekStart } from "@/lib/dates";
+import { notifyAllPreferencesConfirmed } from "@/lib/adminPushEvents";
+import { sendPushNotifications } from "@/lib/pushServer";
 
 interface ConfirmationRow {
   employee: Employee;
@@ -13,7 +15,7 @@ interface ConfirmationRow {
 }
 
 function isValidWeekStart(value: unknown): value is string {
-  return typeof value === "string" && WEEK_START_PATTERN.test(value);
+  return typeof value === "string" && validWeekStart(value);
 }
 
 export async function GET(request: NextRequest) {
@@ -104,28 +106,24 @@ export async function POST(request: NextRequest) {
     }
 
     const employee = session.role as Employee;
-    const confirmedAt = new Date().toISOString();
     const supabase = getSupabaseServerClient();
 
-    const { data, error } = await supabase
-      .from("preference_confirmations")
-      .upsert(
-        {
-          week_id: week.id,
-          employee,
-          confirmed_at: confirmedAt,
-          changed_since_confirmation: false,
-        },
-        {
-          onConflict: "week_id,employee",
-        }
-      )
-      .select("employee, confirmed_at, changed_since_confirmation")
-      .single();
+    const { data, error } = await supabase.rpc("confirm_preferences", {
+      p_week_id: week.id, p_employee: employee,
+    });
 
     if (error) {
+      if (error.message === "WEEK_NOT_OPEN") {
+        return NextResponse.json({ error: "לא ניתן לאשר העדפות לאחר סגירת שלב ההעדפות." }, { status: 409 });
+      }
       throw error;
     }
+
+    await notifyAllPreferencesConfirmed(weekStart, async () => {
+      const result = await supabase.rpc("claim_admin_preferences_ready", { p_week_id: week.id });
+      if (result.error) throw result.error;
+      return result.data === true;
+    }, sendPushNotifications);
 
     return NextResponse.json({
       ok: true,

@@ -1,3 +1,6 @@
+import React from "react";
+export const dynamic = "force-dynamic";
+
 import { redirect } from "next/navigation";
 import { getCurrentSession, isAdmin } from "@/lib/auth";
 import { getWeekStart, isValidWeekStart } from "@/lib/dates";

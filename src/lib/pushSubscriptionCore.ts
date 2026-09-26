@@ -1,24 +1,23 @@
-import type { Employee, Role } from "./types";
+import type { Role } from "./types";
 import type { PushSubscriptionInput } from "./pushTypes";
 
 export interface PushSubscriptionRepository {
   upsertForEmployee(
-    employee: Employee,
+    employee: Role,
     subscription: PushSubscriptionInput,
     userAgent: string | null
   ): Promise<void>;
-  deleteForEmployee(employee: Employee, endpoint: string): Promise<void>;
+  deleteForEmployee(employee: Role, endpoint: string): Promise<void>;
 }
 
 export class PushSubscriptionAccessError extends Error {
   constructor(public readonly status: 401 | 403) {
-    super(status === 401 ? "Authentication required" : "Employee access required");
+    super(status === 401 ? "Authentication required" : "Subscriber access required");
   }
 }
 
-function requireEmployee(role: Role | null): Employee {
+function requireSubscriber(role: Role | null): Role {
   if (!role) throw new PushSubscriptionAccessError(401);
-  if (role === "admin") throw new PushSubscriptionAccessError(403);
   return role;
 }
 
@@ -28,7 +27,7 @@ export async function subscribeCurrentEmployee(
   userAgent: string | null,
   repository: PushSubscriptionRepository
 ): Promise<void> {
-  const employee = requireEmployee(role);
+  const employee = requireSubscriber(role);
   await repository.upsertForEmployee(employee, subscription, userAgent);
 }
 
@@ -37,6 +36,6 @@ export async function unsubscribeCurrentEmployee(
   endpoint: string,
   repository: PushSubscriptionRepository
 ): Promise<void> {
-  const employee = requireEmployee(role);
+  const employee = requireSubscriber(role);
   await repository.deleteForEmployee(employee, endpoint);
 }

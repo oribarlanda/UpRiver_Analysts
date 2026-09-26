@@ -63,7 +63,8 @@ describe("employee header", () => {
 
 describe("employee changelog", () => {
   it("keeps the newest release first and excludes the initial-version entry", () => {
-    expect(CHANGELOG_ENTRIES[0].date).toBe("01.09.2026");
+    const dates = CHANGELOG_ENTRIES.map(entry => entry.date.split(".").reverse().join("-"));
+    expect(dates).toEqual([...dates].sort().reverse());
     expect(JSON.stringify(CHANGELOG_ENTRIES)).not.toContain("גרסה ראשונה");
 
     const markup = renderToStaticMarkup(

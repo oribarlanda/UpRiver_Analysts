@@ -8,6 +8,7 @@ import {
   type PushUiState,
   urlBase64ToArrayBuffer,
 } from "@/lib/pushClient";
+import { supportsWebPush, saveSubscription } from "@/lib/pushDevice";
 import type { EmployeeNotificationSettings } from "@/lib/notificationPreferences";
 import { DAY_LABELS } from "@/lib/types";
 
@@ -28,29 +29,6 @@ function toEditableSettings(
     preferenceRemindersEnabled: settings.preferenceRemindersEnabled,
     preferenceReminders: settings.preferenceReminders,
   };
-}
-
-function supportsWebPush() {
-  return (
-    "serviceWorker" in navigator &&
-    "PushManager" in window &&
-    "Notification" in window
-  );
-}
-
-async function saveSubscription(subscription: PushSubscription) {
-  const json = subscription.toJSON();
-  if (!json.endpoint || !json.keys?.p256dh || !json.keys.auth) {
-    throw new Error("Incomplete push subscription");
-  }
-
-  const response = await fetch("/api/push/subscription", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
-  });
-
-  if (!response.ok) throw new Error("Failed to save push subscription");
 }
 
 function Toggle({

@@ -4,7 +4,7 @@ import {
   unsubscribeCurrentEmployee,
   type PushSubscriptionRepository,
 } from "../lib/pushSubscriptionCore";
-import type { Employee } from "../lib/types";
+import type { Role } from "../lib/types";
 import type { PushSubscriptionInput } from "../lib/pushTypes";
 
 function subscription(endpoint: string): PushSubscriptionInput {
@@ -14,7 +14,7 @@ function subscription(endpoint: string): PushSubscriptionInput {
 function inMemoryRepository() {
   const rows = new Map<
     string,
-    { employee: Employee; subscription: PushSubscriptionInput }
+    { employee: Role; subscription: PushSubscriptionInput }
   >();
 
   const repository: PushSubscriptionRepository = {
@@ -30,15 +30,23 @@ function inMemoryRepository() {
 }
 
 describe("push subscription access and isolation", () => {
-  it("rejects unauthenticated and admin subscription writes", async () => {
+  it("rejects unauthenticated subscription writes", async () => {
     const { repository } = inMemoryRepository();
 
     await expect(
       subscribeCurrentEmployee(null, subscription("https://push/1"), null, repository)
     ).rejects.toMatchObject({ status: 401 });
-    await expect(
-      subscribeCurrentEmployee("admin", subscription("https://push/1"), null, repository)
-    ).rejects.toMatchObject({ status: 403 });
+
+  });
+
+  it("supports multiple admin devices with role isolation", async () => {
+    const { repository, rows } = inMemoryRepository();
+    await subscribeCurrentEmployee("admin", subscription("https://push/admin1"), null, repository);
+    await subscribeCurrentEmployee("admin", subscription("https://push/admin2"), null, repository);
+    await unsubscribeCurrentEmployee("hila", "https://push/admin1", repository);
+    expect(rows.size).toBe(2);
+    await unsubscribeCurrentEmployee("admin", "https://push/admin1", repository);
+    expect(rows.size).toBe(1);
   });
 
   it("supports multiple devices for one employee", async () => {

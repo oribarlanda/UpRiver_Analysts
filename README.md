@@ -294,3 +294,26 @@ weekly-shift-scheduler/
 רק שבועות בסטטוס `published` נכללים. שינוי או הסרה לאחר פרסום מחדש משתקפים
 בפיד, ו-UID דטרמיניסטי מונע יצירת כפילויות. Google אינה מכבדת באופן אמין
 צבע שונה לכל אירוע מפיד ICS; ניתן לבחור ידנית צבע אחד ליומן המחובר כולו.
+
+
+### Admin preference-ready notifications (migration 0010)
+
+Before deploying this version, run the entire file
+supabase/migrations/0010_admin_preferences_ready.sql in the existing project's
+Supabase SQL Editor, after migrations 0001–0009. No new environment variables are
+required: the existing VAPID public/private keys, VAPID subject, service worker and
+device subscription endpoint are reused.
+
+After deployment, sign in as admin, open **🔔התראות**, enable **כל העובדות סיימו למלא העדפות**,
+and enable notifications on each desired device. The choice is shared across admin
+devices; subscriptions remain per device. Existing employee notification choices
+are unchanged.
+
+Confirmation, preference edits and delivery claims serialize on the week row.
+Actual preference edits invalidate approval and advance the revision; no-op upserts
+and repeated confirmations do not send another notification. Delivery is
+best-effort, claimed before sending, with no automatic retry after transport failure.
+The notification opens the week that was confirmed, including manually selected weeks.
+
+SQL behavior tests run all migrations in an isolated in-memory PostgreSQL instance
+(PGlite, a development-only dependency). They do not access the live Supabase database.

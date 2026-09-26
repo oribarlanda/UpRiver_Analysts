@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import AdminPreferencesTable from "../components/AdminPreferencesTable";
+import AdminShiftGrid from "../components/AdminShiftGrid";
 import PublishedScheduleGrid from "../components/PublishedScheduleGrid";
 import { ShiftDefinition } from "../lib/types";
 
@@ -160,5 +161,21 @@ describe("published schedule grid", () => {
     expect(markup).toContain("bg-blue-100");
     expect(markup).toContain("bg-pink-100");
     expect(markup).toContain("bg-emerald-100");
+  });
+});
+
+describe("admin layout width constraints", () => {
+  it.each([2, 3, 4, 8, 12])("wraps %i shifts without minimum table widths", count => {
+    const shifts = Array.from({length:count}, (_,i) => ({...twoShifts[0], id:"shift"+i, name:"משמרתעםשםארוךמאוד"+i}));
+    const draft = renderToStaticMarkup(createElement(AdminShiftGrid, {weekStart:"2026-09-20",shifts,renderCell:()=>createElement("select",{className:"min-w-0 w-full"})}));
+    const published = renderToStaticMarkup(createElement(PublishedScheduleGrid, {weekStart:"2026-09-20",shiftDefinitions:shifts,assignments:[],responsiveAdmin:true}));
+    for (const markup of [draft,published]) {
+      expect(markup).toContain("minmax(min(100%, 7rem), 1fr)");
+      expect(markup).toContain("min-w-0");
+      expect(markup).toContain("overflow-wrap:anywhere");
+      expect(markup).not.toContain("overflow-x-auto");
+      expect(markup).not.toContain("min-width:");
+    }
+    expect(draft.match(/<select/g)).toHaveLength(7*count);
   });
 });

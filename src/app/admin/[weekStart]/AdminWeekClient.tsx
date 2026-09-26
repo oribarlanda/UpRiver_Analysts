@@ -1,5 +1,8 @@
 "use client";
 
+import AdminShiftGrid from "@/components/AdminShiftGrid";
+import AdminNotifications from "@/components/AdminNotifications";
+
 import {
   useEffect,
   useMemo,
@@ -1098,13 +1101,14 @@ export default function AdminWeekClient({
     );
 
   return (
-    <main className="mx-auto max-w-4xl space-y-4 p-3 pb-24">
-      <header className="no-print flex items-center justify-between">
+    <main className="mx-auto min-w-0 max-w-4xl [overflow-wrap:anywhere] space-y-4 p-3 pb-24">
+      <header className="no-print flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold">
           ניהול שיבוץ
         </h1>
 
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <AdminNotifications />
           <Link
             href={`/admin/settings?weekStart=${encodeURIComponent(
               weekStart
@@ -1345,6 +1349,7 @@ export default function AdminWeekClient({
       {/* Assignment editing table */}
       {week.status === "published" ? (
         <PublishedScheduleGrid
+          responsiveAdmin
           weekStart={weekStart}
           shiftDefinitions={shiftDefinitions}
           assignments={DAY_LABELS.flatMap((_, dayIndex) =>
@@ -1366,135 +1371,26 @@ export default function AdminWeekClient({
           title="השיבוץ שפורסם"
         />
       ) : (
-        <div className="overflow-x-auto rounded-xl bg-white p-2 shadow-sm">
-        <h2 className="p-2 text-sm font-semibold text-slate-700">
-          הצעת שיבוץ
-        </h2>
-
-        <table className="w-full min-w-[500px] border-collapse text-center text-xs">
-          <thead>
-            <tr>
-              <th className="p-1 text-slate-500">
-                יום
-              </th>
-
-              {shiftDefinitions.map(
-                (shift) => (
-                  <th
-                    key={shift.id}
-                    className="p-1 text-slate-500"
-                  >
-                    {shift.name}
-                  </th>
-                )
-              )}
-            </tr>
-          </thead>
-
-          <tbody>
-            {DAY_LABELS.map(
-              (label, dayIndex) => (
-                <tr key={dayIndex}>
-                  <td className="p-1 font-semibold text-slate-600">
-                    {label}
-                  </td>
-
-                  {shiftDefinitions.map(
-                    (shift) => {
-                      const key =
-                        `${dayIndex}-${shift.id}`;
-
-                      const current =
-                        assignMap[key]
-                          ?.employee ?? "";
-
-                      const hasWarning =
-                        warningKeys.has(key);
-
-                      const isMissing =
-                        missingAssignmentKeys.has(
-                          key
-                        );
-
-                      return (
-                        <td
-                          key={shift.id}
-                          className="p-1"
-                        >
-                          <select
-                            value={current}
-                            onChange={(
-                              event
-                            ) =>
-                              handleManualAssign(
-                                dayIndex,
-                                shift.id,
-                                (event
-                                  .target
-                                  .value ||
-                                  null) as
-                                  | Employee
-                                  | null
-                              )
-                            }
-                            disabled={
-                              week.status ===
-                                "open"
-                            }
-                            className={`w-full rounded-lg border px-1 py-2 text-xs ${
-                              hasWarning ||
-                              isMissing
-                                ? "border-red-400 bg-red-50"
-                                : "border-slate-300"
-                            }`}
-                          >
-                            <option value="">
-                              —
-                            </option>
-
-                            {EMPLOYEES.map(
-                              (employee) => (
-                                <option
-                                  key={
-                                    employee
-                                  }
-                                  value={
-                                    employee
-                                  }
-                                >
-                                  {
-                                    EMPLOYEE_LABELS[
-                                      employee
-                                    ]
-                                  }
-                                </option>
-                              )
-                            )}
-                          </select>
-
-                          {hasWarning && (
-                            <span className="mt-1 block text-[10px] text-red-600">
-                              בניגוד
-                              להעדפה!
-                            </span>
-                          )}
-
-                          {isMissing &&
-                            !hasWarning && (
-                              <span className="mt-1 block text-[10px] text-red-600">
-                                לא שובץ
-                              </span>
-                            )}
-                        </td>
-                      );
-                    }
-                  )}
-                </tr>
-              )
-            )}
-          </tbody>
-        </table>
-        </div>
+        <section className="min-w-0 rounded-xl bg-white p-2 shadow-sm">
+          <h2 className="p-2 text-sm font-semibold text-slate-700">הצעת שיבוץ</h2>
+          <AdminShiftGrid weekStart={weekStart} shifts={shiftDefinitions} renderCell={(dayIndex, shift) => {
+            const key = `${dayIndex}-${shift.id}`;
+            const hasWarning = warningKeys.has(key);
+            const isMissing = missingAssignmentKeys.has(key);
+            return <>
+              <select aria-label={`${DAY_LABELS[dayIndex]} — ${shift.name}`}
+                value={assignMap[key]?.employee ?? ""}
+                onChange={event => handleManualAssign(dayIndex, shift.id, (event.target.value || null) as Employee | null)}
+                disabled={week.status === "open"}
+                className={`w-full min-w-0 max-w-full rounded-lg border px-1 py-2 text-xs ${hasWarning || isMissing ? "border-red-400 bg-red-50" : "border-slate-300"}`}>
+                <option value="">—</option>
+                {EMPLOYEES.map(employee => <option key={employee} value={employee}>{EMPLOYEE_LABELS[employee]}</option>)}
+              </select>
+              {hasWarning && <span className="mt-1 block text-[10px] text-red-600">בניגוד להעדפה!</span>}
+              {isMissing && !hasWarning && <span className="mt-1 block text-[10px] text-red-600">לא שובץ</span>}
+            </>;
+          }} />
+        </section>
       )}
 
       {/* Live pay stats */}

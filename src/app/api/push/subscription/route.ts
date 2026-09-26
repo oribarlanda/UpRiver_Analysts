@@ -17,7 +17,7 @@ function accessErrorResponse(error: PushSubscriptionAccessError) {
       error:
         error.status === 401
           ? "לא מחוברת. יש להתחבר מחדש."
-          : "התראות זמינות לעובדות בלבד.",
+          : "אין הרשאה לניהול התראות.",
     },
     { status: error.status }
   );
@@ -26,9 +26,6 @@ function accessErrorResponse(error: PushSubscriptionAccessError) {
 export async function POST(request: NextRequest) {
   const session = await getCurrentSession();
   if (!session) return accessErrorResponse(new PushSubscriptionAccessError(401));
-  if (session.role === "admin") {
-    return accessErrorResponse(new PushSubscriptionAccessError(403));
-  }
   const body = await request.json().catch(() => null);
   const parsed = pushSubscriptionSchema.safeParse(body);
 
@@ -55,9 +52,6 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const session = await getCurrentSession();
   if (!session) return accessErrorResponse(new PushSubscriptionAccessError(401));
-  if (session.role === "admin") {
-    return accessErrorResponse(new PushSubscriptionAccessError(403));
-  }
   const body = await request.json().catch(() => null);
   const parsed = pushUnsubscribeSchema.safeParse(body);
 

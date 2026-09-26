@@ -45,6 +45,8 @@ export function notificationTypeEnabled(
   }
 
   switch (type) {
+    case "all_preferences_confirmed":
+      return false;
     case "schedule_published":
       return settings.schedulePublishedEnabled;
     case "schedule_updated":

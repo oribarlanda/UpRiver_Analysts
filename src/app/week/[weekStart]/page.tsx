@@ -1,3 +1,6 @@
+import React from "react";
+export const dynamic = "force-dynamic";
+
 import { redirect } from "next/navigation";
 import { getCurrentSession } from "@/lib/auth";
 import { getCalendarFeedPath } from "@/lib/calendarFeedAccess";

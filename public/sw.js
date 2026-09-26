@@ -10,6 +10,7 @@ self.addEventListener("push", (event) => {
   }
 
   const bodies = {
+    all_preferences_confirmed: "כל העובדות סיימו למלא העדפות — אפשר ליצור שיבוץ ✅",
     schedule_published: "השיבוץ לשבוע הבא פורסם 🎉",
     schedule_updated: "השיבוץ שלך עודכן",
     preference_reminder: "תזכורת למלא ולאשר את ההעדפות לשבוע הבא 📋",

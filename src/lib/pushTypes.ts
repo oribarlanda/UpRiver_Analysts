@@ -1,9 +1,10 @@
-import type { Employee } from "./types";
+import type { Role } from "./types";
 
 export type PushNotificationType =
   | "schedule_published"
   | "schedule_updated"
-  | "preference_reminder";
+  | "preference_reminder"
+  | "all_preferences_confirmed";
 
 export interface PushNotificationPayload {
   title: "UpRiver";
@@ -14,7 +15,7 @@ export interface PushNotificationPayload {
 }
 
 export interface StoredPushSubscription {
-  employee: Employee;
+  employee: Role;
   endpoint: string;
   p256dh: string;
   auth: string;

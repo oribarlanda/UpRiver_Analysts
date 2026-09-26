@@ -1,4 +1,5 @@
 import React from "react";
+import AdminShiftGrid from "./AdminShiftGrid";
 import { dayInWeek } from "../lib/dates";
 import {
   DAY_LABELS,
@@ -19,6 +20,7 @@ interface PublishedScheduleGridProps {
   shiftDefinitions: ShiftDefinition[];
   assignments: PublishedScheduleAssignment[];
   title?: string;
+  responsiveAdmin?: boolean;
 }
 
 const ASSIGNMENT_STYLES: Record<Employee, string> = {
@@ -37,6 +39,7 @@ export default function PublishedScheduleGrid({
   shiftDefinitions,
   assignments,
   title,
+  responsiveAdmin = false,
 }: PublishedScheduleGridProps) {
   const assignmentMap = new Map<string, Employee>();
 
@@ -46,6 +49,16 @@ export default function PublishedScheduleGrid({
       assignment.employee
     );
   }
+
+  if (responsiveAdmin) return <section className="min-w-0 rounded-xl bg-white p-2 shadow-sm">
+    {title && <h2 className="p-2 text-sm font-semibold text-slate-700">{title}</h2>}
+    <AdminShiftGrid weekStart={weekStart} shifts={shiftDefinitions} renderCell={(dayIndex, shift) => {
+      const employee = assignmentMap.get(`${dayIndex}-${shift.id}`);
+      return <div className={`flex min-h-14 min-w-0 items-center justify-center rounded-lg border px-1 py-2 text-center text-xs font-bold shadow-sm ${employee ? ASSIGNMENT_STYLES[employee] : "border-slate-200 bg-slate-50 text-slate-500"}`}>
+        {employee ? EMPLOYEE_LABELS[employee] : "—"}
+      </div>;
+    }} />
+  </section>;
 
   return (
     <section className="overflow-x-auto rounded-xl bg-white p-2 shadow-sm">

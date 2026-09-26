@@ -2,10 +2,10 @@ import type {
   PushNotificationPayload,
   StoredPushSubscription,
 } from "./pushTypes";
-import type { Employee } from "./types";
+import type { Role } from "./types";
 
 export interface PushDeliveryRepository {
-  listForEmployees(employees: readonly Employee[]): Promise<StoredPushSubscription[]>;
+  listForEmployees(employees: readonly Role[]): Promise<StoredPushSubscription[]>;
   markSuccess(endpoint: string): Promise<void>;
   markFailure(endpoint: string): Promise<void>;
   deleteByEndpoint(endpoint: string): Promise<void>;
@@ -35,7 +35,7 @@ function pushStatusCode(error: unknown): number | null {
 }
 
 export async function deliverPushNotifications(
-  employees: readonly Employee[],
+  employees: readonly Role[],
   payload: PushNotificationPayload,
   repository: PushDeliveryRepository,
   transport: PushTransport

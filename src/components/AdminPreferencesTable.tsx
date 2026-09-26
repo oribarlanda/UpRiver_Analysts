@@ -121,7 +121,7 @@ export default function AdminPreferencesTable({
   const editable = weekStatus === "open";
 
   return (
-    <section className="rounded-xl bg-white p-2 shadow-sm sm:p-3">
+    <section className="min-w-0 [overflow-wrap:anywhere] rounded-xl bg-white p-2 shadow-sm sm:p-3">
       <div className="flex flex-wrap items-center justify-between gap-1 px-1 pb-2">
         <h2 className="text-sm font-semibold text-slate-700">
           העדפות העובדות
@@ -134,7 +134,7 @@ export default function AdminPreferencesTable({
         )}
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-slate-200">
+      <div className="min-w-0 rounded-lg border border-slate-200">
         <table className="w-full table-fixed border-collapse text-center text-[10px] leading-tight sm:text-xs">
           <colgroup>
             <col className="w-[15%]" />
@@ -242,7 +242,7 @@ export default function AdminPreferencesTable({
                             )
                           }
                           aria-label={`${EMPLOYEE_LABELS[employee]}, ${dayLabel}, ${shift.name}: ${PREFERENCE_LABELS[preference]}${editable ? ". לחיצה לשינוי" : ""}`}
-                          className={`${style.bg} ${style.text} ${style.border} flex min-h-9 w-full items-center justify-center rounded border px-0.5 py-1 text-center text-[9px] font-semibold leading-[1.15] transition sm:min-h-10 sm:px-1 sm:text-xs ${
+                          className={`${style.bg} ${style.text} ${style.border} flex min-w-0 min-h-9 w-full items-center justify-center rounded border px-0.5 py-1 text-center text-[9px] font-semibold leading-[1.15] transition sm:min-h-10 sm:px-1 sm:text-xs ${
                             editable
                               ? "cursor-pointer hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-inset"
                               : "cursor-default"
