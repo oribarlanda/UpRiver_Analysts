@@ -29,6 +29,7 @@ export async function sendPushNotifications(
     );
   }
   if (enabledEmployees.length === 0) {
+    console.info("[push] preferences_disabled", { type: payload.type, weekStart: payload.weekStart });
     return { attempted: 0, delivered: 0, removed: 0, failed: 0 };
   }
   const config = getVapidConfig();

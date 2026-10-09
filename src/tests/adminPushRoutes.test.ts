@@ -19,6 +19,7 @@ function req(url:string,body:unknown,method="POST"){
 }
 beforeEach(()=>{
  vi.clearAllMocks(); mocks.session={role:"admin"};
+ mocks.subscribe.mockResolvedValue(true);
  mocks.upsert.mockResolvedValue({error:null});
  mocks.single.mockResolvedValue({data:{all_preferences_confirmed_enabled:true},error:null});
  mocks.rpc.mockImplementation(async (name:string)=>({data:name==="claim_admin_preferences_ready"?true:{employee:"hila",changed_since_confirmation:false},error:null}));
@@ -28,7 +29,13 @@ describe("admin notification endpoints",()=>{
  it("derives subscription owner from the admin session",async()=>{
   const response=await subscribe(req("/api/push/subscription",{endpoint:"https://fcm.googleapis.com/fcm/send/test",keys:{p256dh:"a".repeat(87),auth:"b".repeat(22)}}));
   expect(response.status).toBe(200);
-  expect(mocks.subscribe).toHaveBeenCalledWith("admin",expect.anything(),null);
+  expect(mocks.subscribe).toHaveBeenCalledWith("admin",expect.anything(),null,true);
+ });
+ it("passive inspection cannot enroll the current role",async()=>{
+  mocks.subscribe.mockResolvedValue(false);
+  const response=await subscribe(req("/api/push/subscription",{mode:"inspect",endpoint:"https://fcm.googleapis.com/fcm/send/test",keys:{p256dh:"a".repeat(87),auth:"b".repeat(22)}}));
+  expect(await response.json()).toEqual({ok:true,active:false});
+  expect(mocks.subscribe).toHaveBeenCalledWith("admin",expect.anything(),null,false);
  });
  it("loads and saves the single admin choice",async()=>{
   expect(await (await GET()).json()).toEqual({enabled:true});

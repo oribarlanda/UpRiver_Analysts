@@ -18,11 +18,13 @@ function inMemoryRepository() {
   >();
 
   const repository: PushSubscriptionRepository = {
-    async upsertForEmployee(employee, value) {
-      rows.set(value.endpoint, { employee, subscription: value });
+    async upsertForEmployee(employee, value, _agent, subscribe = true) {
+      const key = value.endpoint + ":" + employee;
+      if (subscribe) rows.set(key, { employee, subscription: value });
+      return rows.has(key);
     },
     async deleteForEmployee(employee, endpoint) {
-      if (rows.get(endpoint)?.employee === employee) rows.delete(endpoint);
+      rows.delete(endpoint + ":" + employee);
     },
   };
 
@@ -57,22 +59,23 @@ describe("push subscription access and isolation", () => {
     expect([...rows.values()].filter((row) => row.employee === "hila")).toHaveLength(2);
   });
 
-  it("re-associates the same endpoint to the currently signed-in employee", async () => {
+  it("preserves both explicit employee opt-ins on the same endpoint", async () => {
     const { repository, rows } = inMemoryRepository();
     await subscribeCurrentEmployee("hila", subscription("https://push/shared"), null, repository);
     await subscribeCurrentEmployee("yaara", subscription("https://push/shared"), null, repository);
 
-    expect(rows.size).toBe(1);
-    expect(rows.get("https://push/shared")?.employee).toBe("yaara");
+    expect(rows.size).toBe(2);
+    expect(rows.get("https://push/shared:hila")?.employee).toBe("hila");
+    expect(rows.get("https://push/shared:yaara")?.employee).toBe("yaara");
   });
 
   it("does not let one employee remove another employee's endpoint", async () => {
     const { repository, rows } = inMemoryRepository();
     await subscribeCurrentEmployee("hila", subscription("https://push/1"), null, repository);
     await unsubscribeCurrentEmployee("yaara", "https://push/1", repository);
-    expect(rows.has("https://push/1")).toBe(true);
+    expect(rows.has("https://push/1:hila")).toBe(true);
 
     await unsubscribeCurrentEmployee("hila", "https://push/1", repository);
-    expect(rows.has("https://push/1")).toBe(false);
+    expect(rows.has("https://push/1:hila")).toBe(false);
   });
 });

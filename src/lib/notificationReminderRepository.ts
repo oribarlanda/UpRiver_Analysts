@@ -3,6 +3,7 @@ import "server-only";
 import { notificationPreferencesRepository } from "./notificationPreferencesRepository";
 import {
   reminderQueryRange,
+  withUpcomingReminderWeek,
   type NotificationReminderRepository,
   type NotificationReminderState,
   type ReminderCandidate,
@@ -62,11 +63,11 @@ export const notificationReminderRepository: NotificationReminderRepository = {
 
     if (confirmationsResult.error) throw confirmationsResult.error;
 
-    const weeks: ReminderWeek[] = weekRows.map((week) => ({
+    const weeks: ReminderWeek[] = withUpcomingReminderWeek(weekRows.map((week) => ({
       id: week.id,
       weekStart: week.week_start,
       status: week.status,
-    }));
+    })), now);
     const preferenceReminders: StoredPreferenceReminder[] = (
       (remindersResult.data ?? []) as StoredReminderRow[]
     ).map((reminder) => ({

@@ -230,6 +230,7 @@ const pushEndpointSchema = z
   .refine((value) => new URL(value).protocol === "https:");
 
 export const pushSubscriptionSchema = z.object({
+  mode: z.enum(["subscribe", "inspect"]).default("subscribe"),
   endpoint: pushEndpointSchema,
   keys: z.object({
     p256dh: pushKeySchema,

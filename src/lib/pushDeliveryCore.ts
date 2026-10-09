@@ -38,9 +38,12 @@ export async function deliverPushNotifications(
   employees: readonly Role[],
   payload: PushNotificationPayload,
   repository: PushDeliveryRepository,
-  transport: PushTransport
+  transport: PushTransport,
+  log: (event: string, details: object) => void = console.info
 ): Promise<PushDeliverySummary> {
-  const subscriptions = await repository.listForEmployees(employees);
+  // A device enabled for multiple requested roles should receive this event once.
+  const subscriptions = [...new Map((await repository.listForEmployees(employees))
+    .map(subscription => [subscription.endpoint, subscription])).values()];
   const summary: PushDeliverySummary = {
     attempted: subscriptions.length,
     delivered: 0,
@@ -48,26 +51,31 @@ export async function deliverPushNotifications(
     failed: 0,
   };
 
-  await Promise.all(
-    subscriptions.map(async (subscription) => {
-      try {
-        await transport.send(subscription, payload);
-        await repository.markSuccess(subscription.endpoint);
-        summary.delivered += 1;
-      } catch (error) {
-        const statusCode = pushStatusCode(error);
-
-        if (statusCode === 404 || statusCode === 410) {
-          await repository.deleteByEndpoint(subscription.endpoint);
-          summary.removed += 1;
-          return;
-        }
-
-        await repository.markFailure(subscription.endpoint);
+  async function record(operation: () => Promise<void>) {
+    try { await operation(); }
+    catch { log("[push] bookkeeping_failed", { type: payload.type, weekStart: payload.weekStart }); }
+  }
+  await Promise.all(subscriptions.map(async subscription => {
+    try {
+      await transport.send(subscription, payload);
+    } catch (error) {
+      const statusCode = pushStatusCode(error);
+      // Never log endpoints, encryption keys, provider bodies, or credentials.
+      log("[push] transport_failed", { type: payload.type, weekStart: payload.weekStart,
+        statusCode, role: subscription.employee });
+      if (statusCode === 404 || statusCode === 410) {
+        summary.removed += 1;
+        await record(() => repository.deleteByEndpoint(subscription.endpoint));
+      } else {
         summary.failed += 1;
+        await record(() => repository.markFailure(subscription.endpoint));
       }
-    })
-  );
+      return;
+    }
+    summary.delivered += 1;
+    await record(() => repository.markSuccess(subscription.endpoint));
+  }));
+  log("[push] delivery", { type: payload.type, weekStart: payload.weekStart, ...summary });
 
   return summary;
 }

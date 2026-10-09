@@ -17,9 +17,17 @@ export interface StoredPreferenceReminder {
 }
 
 export interface ReminderWeek {
-  id: string;
+  id: string | null;
   weekStart: string;
   status: WeekStatus;
+}
+
+/** The next week is open for preferences even before its first page visit. */
+export function withUpcomingReminderWeek(weeks: readonly ReminderWeek[], now: Date): ReminderWeek[] {
+  const nextWeekStart = addWeeks(getWeekStart(now, NOTIFICATION_TIME_ZONE), 1);
+  return weeks.some(week => week.weekStart === nextWeekStart)
+    ? [...weeks]
+    : [...weeks, { id: null, weekStart: nextWeekStart, status: "open" }];
 }
 
 export interface ReminderConfirmation {
@@ -39,7 +47,7 @@ export interface ReminderCandidate {
   deliveryKey: string;
   employee: Employee;
   notificationType: "preference_reminder";
-  weekId: string;
+  weekId: string | null;
   scheduledFor: string;
   payload: PushNotificationPayload;
 }
@@ -120,7 +128,7 @@ export function collectDueReminderCandidates(
             "preference",
             reminder.employee,
             reminder.id,
-            targetWeek.id,
+            targetWeek.weekStart,
             reminder.time,
           ].join(":"),
           employee: reminder.employee,

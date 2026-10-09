@@ -5,8 +5,9 @@ export interface PushSubscriptionRepository {
   upsertForEmployee(
     employee: Role,
     subscription: PushSubscriptionInput,
-    userAgent: string | null
-  ): Promise<void>;
+    userAgent: string | null,
+    subscribe?: boolean
+  ): Promise<boolean>;
   deleteForEmployee(employee: Role, endpoint: string): Promise<void>;
 }
 
@@ -25,10 +26,11 @@ export async function subscribeCurrentEmployee(
   role: Role | null,
   subscription: PushSubscriptionInput,
   userAgent: string | null,
-  repository: PushSubscriptionRepository
-): Promise<void> {
+  repository: PushSubscriptionRepository,
+  subscribe = true
+): Promise<boolean> {
   const employee = requireSubscriber(role);
-  await repository.upsertForEmployee(employee, subscription, userAgent);
+  return repository.upsertForEmployee(employee, subscription, userAgent, subscribe);
 }
 
 export async function unsubscribeCurrentEmployee(

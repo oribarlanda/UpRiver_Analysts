@@ -4,11 +4,9 @@ import React, { useEffect, useState } from "react";
 import {
   isPushMasterOn,
   notificationChoicesDisabled,
-  resolvePushUiState,
   type PushUiState,
-  urlBase64ToArrayBuffer,
 } from "@/lib/pushClient";
-import { supportsWebPush, saveSubscription } from "@/lib/pushDevice";
+import { disablePushDevice, enablePushDevice, inspectPushDevice } from "@/lib/pushDevice";
 import type { EmployeeNotificationSettings } from "@/lib/notificationPreferences";
 import { DAY_LABELS } from "@/lib/types";
 
@@ -73,38 +71,10 @@ export default function PushNotifications() {
     let cancelled = false;
 
     async function inspect() {
-      if (!supportsWebPush()) {
-        if (!cancelled) setState("unsupported");
-        return;
-      }
-
-      if (!VAPID_PUBLIC_KEY) {
-        if (!cancelled) setState("unconfigured");
-        return;
-      }
-
       try {
-        const registration = await navigator.serviceWorker.register("/sw.js", {
-          scope: "/",
-        });
-        const subscription = await registration.pushManager.getSubscription();
-        const nextState = resolvePushUiState({
-          hasServiceWorker: true,
-          hasPushManager: true,
-          hasNotification: true,
-          hasPublicKey: true,
-          permission: Notification.permission,
-          hasSubscription: subscription !== null,
-        });
-
-        if (nextState === "active" && subscription) {
-          await saveSubscription(subscription);
-        }
-
+        const nextState = await inspectPushDevice(VAPID_PUBLIC_KEY);
         if (!cancelled) setState(nextState);
-      } catch {
-        if (!cancelled) setState("error");
-      }
+      } catch { if (!cancelled) setState("error"); }
     }
 
     async function loadSettings() {
@@ -134,58 +104,15 @@ export default function PushNotifications() {
   }, []);
 
   async function enableNotifications() {
-    if (!supportsWebPush() || !VAPID_PUBLIC_KEY) return;
     setState("working");
-
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission === "denied") {
-        setState("denied");
-        return;
-      }
-      if (permission !== "granted") {
-        setState("inactive");
-        return;
-      }
-
-      const registration = await navigator.serviceWorker.ready;
-      const existing = await registration.pushManager.getSubscription();
-      const subscription =
-        existing ??
-        (await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToArrayBuffer(VAPID_PUBLIC_KEY),
-        }));
-
-      await saveSubscription(subscription);
-      setState("active");
-    } catch {
-      setState("error");
-    }
+    try { setState(await enablePushDevice(VAPID_PUBLIC_KEY)); }
+    catch { setState("error"); }
   }
 
   async function disableNotifications() {
-    if (!supportsWebPush()) return;
     setState("working");
-
-    try {
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
-
-      if (subscription) {
-        const response = await fetch("/api/push/subscription", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ endpoint: subscription.endpoint }),
-        });
-        if (!response.ok) throw new Error("Failed to remove subscription");
-        await subscription.unsubscribe();
-      }
-
-      setState("inactive");
-    } catch {
-      setState("error");
-    }
+    try { setState(await disablePushDevice()); }
+    catch { setState("error"); }
   }
 
   async function persistSettings(next: EditableSettings) {

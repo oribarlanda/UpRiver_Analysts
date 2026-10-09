@@ -34,13 +34,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await subscribeCurrentEmployee(
+    const active = await subscribeCurrentEmployee(
       session.role,
       parsed.data,
       request.headers.get("user-agent"),
-      pushRepository
+      pushRepository,
+      parsed.data.mode === "subscribe"
     );
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, active });
   } catch (error) {
     if (error instanceof PushSubscriptionAccessError) {
       return accessErrorResponse(error);

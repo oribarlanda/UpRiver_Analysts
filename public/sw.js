@@ -1,4 +1,8 @@
 /* UpRiver service worker: intentionally no caching, only Web Push events. */
+// This worker only handles notifications: activate updates even while the PWA is open.
+self.addEventListener("install", (event) => event.waitUntil(self.skipWaiting()));
+self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+
 self.addEventListener("push", (event) => {
   if (!event.data) return;
 
@@ -15,7 +19,7 @@ self.addEventListener("push", (event) => {
     schedule_updated: "השיבוץ שלך עודכן",
     preference_reminder: "תזכורת למלא ולאשר את ההעדפות לשבוע הבא 📋",
   };
-  const body = bodies[payload.type];
+  const body = payload && (bodies[payload.type] || payload.body);
   if (!body) return;
 
   event.waitUntil(
@@ -24,6 +28,7 @@ self.addEventListener("push", (event) => {
       icon: "/icons/upriver-192.png",
       badge: "/icons/notification-badge.png",
       data: { url: payload.url || "/" },
+      renotify: true,
       tag: `${payload.type}:${payload.weekStart || "general"}`,
     })
   );

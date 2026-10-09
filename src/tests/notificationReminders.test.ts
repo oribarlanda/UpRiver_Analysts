@@ -3,6 +3,7 @@ import { defaultNotificationSettings } from "../lib/notificationPreferences";
 import {
   collectDueReminderCandidates,
   NOTIFICATION_TIME_ZONE,
+  withUpcomingReminderWeek,
   runNotificationReminders,
   type NotificationReminderRepository,
   type NotificationReminderState,
@@ -123,6 +124,28 @@ describe("weekly preference reminders", () => {
     );
 
     expect(candidates).toEqual([]);
+  });
+
+  it("reproduces the missed Friday reminder when default routing has not created next week", () => {
+    const now = new Date("2026-10-02T07:46:29Z");
+    const previousWeek = [{id:"published",weekStart:"2026-09-27",status:"published" as const}];
+    const virtualWeeks = withUpcomingReminderWeek(previousWeek,now);
+    const input = state({weeks:virtualWeeks,preferenceReminders:[{id:"fri",employee:"hila",dayOfWeek:5,time:"10:00"}]});
+    const candidates=collectDueReminderCandidates(input,now);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({weekId:null,payload:{url:"/week/2026-10-04"}});
+    expect(previousWeek).toHaveLength(1);
+    expect(withUpcomingReminderWeek([{id:"closed",weekStart:"2026-10-04",status:"draft"}],now)).toHaveLength(1);
+  });
+
+  it("reminds for an uncreated week without changing the key once the week is opened", () => {
+    const virtual = state({weeks:[{id:null,weekStart:"2026-09-06",status:"open"}]});
+    const now = new Date("2026-09-06T06:00:00Z");
+    const before = collectDueReminderCandidates(virtual,now);
+    expect(before[0].weekId).toBeNull();
+    expect(before[0].payload.url).toBe("/week/2026-09-06");
+    virtual.weeks[0].id="created-later";
+    expect(collectDueReminderCandidates(virtual,now)[0].deliveryKey).toBe(before[0].deliveryKey);
   });
 
   it("claims a deterministic key so a cron retry cannot send twice", async () => {

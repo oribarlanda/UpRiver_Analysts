@@ -7,47 +7,35 @@ import type { PushSubscriptionRepository } from "./pushSubscriptionCore";
 
 export const pushRepository: PushSubscriptionRepository &
   PushDeliveryRepository = {
-  async upsertForEmployee(employee, subscription, userAgent) {
-    const supabase = getSupabaseServerClient();
-    const { error } = await supabase.from("push_subscriptions").upsert(
-      {
-        employee,
-        endpoint: subscription.endpoint,
-        p256dh: subscription.keys.p256dh,
-        auth: subscription.keys.auth,
-        user_agent: userAgent,
-        updated_at: new Date().toISOString(),
-        failure_count: 0,
-        last_failure_at: null,
-      },
-      { onConflict: "endpoint" }
-    );
-
+  async upsertForEmployee(employee, subscription, userAgent, subscribe = true) {
+    const { data, error } = await getSupabaseServerClient().rpc("save_push_subscription", {
+      p_employee: employee, p_endpoint: subscription.endpoint,
+      p_p256dh: subscription.keys.p256dh, p_auth: subscription.keys.auth,
+      p_user_agent: userAgent, p_subscribe: subscribe,
+    });
     if (error) throw error;
+    return data === true;
   },
 
   async deleteForEmployee(employee, endpoint) {
-    const supabase = getSupabaseServerClient();
-    const { error } = await supabase
-      .from("push_subscriptions")
-      .delete()
-      .eq("employee", employee)
-      .eq("endpoint", endpoint);
-
+    const { error } = await getSupabaseServerClient()
+      .from("push_subscription_recipients").delete()
+      .eq("employee", employee).eq("endpoint", endpoint);
     if (error) throw error;
   },
 
   async listForEmployees(employees) {
     if (employees.length === 0) return [];
-
-    const supabase = getSupabaseServerClient();
-    const { data, error } = await supabase
-      .from("push_subscriptions")
-      .select("employee, endpoint, p256dh, auth")
+    const { data, error } = await getSupabaseServerClient()
+      .from("push_subscription_recipients")
+      .select("employee, push_subscriptions!inner(endpoint, p256dh, auth)")
       .in("employee", [...employees]);
-
     if (error) throw error;
-    return (data ?? []) as StoredPushSubscription[];
+    const rows = (data ?? []) as unknown as Array<{
+      employee: StoredPushSubscription["employee"];
+      push_subscriptions: Omit<StoredPushSubscription, "employee">;
+    }>;
+    return rows.map(row => ({ employee: row.employee, ...row.push_subscriptions }));
   },
 
   async markSuccess(endpoint) {
